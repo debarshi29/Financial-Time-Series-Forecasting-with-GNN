@@ -1,0 +1,33 @@
+[project]
+name = "thgnn-main"
+version = "0.1.0"
+description = "MSc Dissertation: Temporal Heterogeneous Graph Neural Network"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "networkx>=3.4",
+    "numpy>=1.26.0",
+    "pandas>=2.2.3",
+    "requests>=2.32.5",
+    "torch>=2.5.1",
+    "torchaudio>=2.5.1",
+    "torchvision>=0.20.1",
+    "tqdm>=4.67.1",
+    "yfinance>=1.0",
+    "scipy>=1.13.0",
+    "matplotlib>=3.10.8",
+    "seaborn>=0.13.2",
+]
+
+[tool.uv]
+index-strategy = "unsafe-best-match"
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+torchaudio = { index = "pytorch-cu124" }
+torchvision = { index = "pytorch-cu124" }

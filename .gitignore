@@ -1,0 +1,37 @@
+# Environment variables
+.env
+.env.*
+*.env
+
+# CSV files
+*.csv
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Mac
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# VS Code
+.vscode/
+.claude/
+.codex/
+
+# Logs
+*.log
+

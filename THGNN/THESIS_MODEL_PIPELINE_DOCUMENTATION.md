@@ -1,0 +1,394 @@
+# THGNN Thesis Technical Documentation
+
+## Scope
+This document describes the current implementation and experimental pipeline in:
+
+- `model/Thgnn.py`
+- `utils/generate_relation.py`
+- `utils/generate_data.py`
+- `main.py`
+- `new_main.py`
+- `train_ic_ranked.py`
+
+Supporting behavior from:
+
+- `trainer/trainer.py`
+- `data_loader.py`
+
+The goal is to provide thesis-ready technical details: data flow, architecture, loss functions, hyperparameters, training/evaluation logic, and key caveats.
+
+---
+
+## 1. End-to-End Pipeline
+
+1. Build processed market dataframe (`data/nifty50.pkl`) from raw OHLCV.
+2. Build relation matrices (`data/relation/*.csv`) using rolling-window correlation:
+   - `utils/generate_relation.py`
+3. Build graph samples (`data/data_train_predict/*.pkl`) and stock metadata (`data/daily_stock/*.csv`):
+   - `utils/generate_data.py`
+4. Train/evaluate:
+   - Baseline training/prediction: `main.py`
+   - Extended training + walk-forward + backtest: `new_main.py`
+   - IC/dispersion-aware training: `train_ic_ranked.py`
+
+---
+
+## 2. Data Artifacts and Tensor Shapes
+
+Each graph sample (`.pkl`) produced by `utils/generate_data.py` has:
+
+- `features`: shape `(N, W, F)`  
+  - `N`: number of stocks in relation matrix (typically 50)  
+  - `W`: lookback window (`--window`, default 20)  
+  - `F`: feature count (6)
+- `labels`: shape `(N, H)`  
+  - `H`: forecast horizon (`--horizon`, default 3)
+- `pos_adj`: shape `(N, N)` positive-edge adjacency
+- `neg_adj`: shape `(N, N)` negative-edge adjacency
+- `mask`: length `N` boolean list
+
+Feature columns:
+
+- `open`, `high`, `low`, `close`, `to`, `vol`
+
+Target semantics:
+
+- `label` is next-step close return in decimal form (`pct_change`, not percentage points).
+- Example: `0.01` means +1%.
+
+---
+
+## 3. Relation Construction (`utils/generate_relation.py`)
+
+## 3.1 Inputs and Core Logic
+
+- Input dataset: `data/nifty50.pkl` with `dt`, `code`, and engineered features.
+- For each relation date `t`, script uses previous `window` trading days ending at `t`.
+- For each stock pair, computes average Pearson correlation across six feature channels.
+
+## 3.2 Correlation Computation
+
+- `cal_pccs(...)`: manual Pearson formula.
+- `calculate_pccs(...)`: computes pairwise per-feature correlations and averages across features.
+- `stock_cor_matrix(...)`: generates full stock-by-stock relation matrix.
+
+## 3.3 Leakage-Safe Date Behavior
+
+Current behavior is daily relation generation:
+
+- `infer_relation_dates(...)` returns all filtered trading dates (not monthly month-end only).
+- This removes month-end lookahead leakage seen in older monthly assignment pipelines.
+
+## 3.4 Hyperparameters and CLI
+
+- `--window` default `20`
+- `--processes` default `1`
+- Optional date filters: `--start-date`, `--end-date`
+
+Output:
+
+- One CSV per relation date in `data/relation`, filename `YYYY-MM-DD.csv`.
+
+---
+
+## 4. Graph Sample Construction (`utils/generate_data.py`)
+
+## 4.1 Logic
+
+For each valid trading day `t` that has a relation file:
+
+1. Load relation matrix for exactly day `t` via map `date -> relation_path`.
+2. Build `pos_adj` and `neg_adj` using thresholds:
+   - positive edges where correlation > `pos_threshold`
+   - negative edges where correlation < `-neg_threshold`
+3. For each stock in relation matrix:
+   - take `W`-day feature window ending at `t`
+   - take `H` labels from position `t` onward in stock timeline
+4. Keep sample only if all relation stocks are fully aligned.
+
+## 4.2 Adjacency Construction
+
+- `pos_adj`: binary matrix from thresholded positive correlations.
+- `neg_adj`: binary matrix from thresholded negative correlations.
+- diagonals are removed.
+
+## 4.3 Hyperparameters and CLI
+
+- `--window` default `20`
+- `--horizon` default `3`
+- `--pos-threshold` default `0.1`
+- `--neg-threshold` default `0.1`
+- optional date range filters
+
+Outputs:
+
+- `data/data_train_predict/YYYY-MM-DD.pkl`
+- `data/daily_stock/YYYY-MM-DD.csv` (contains `code`, `dt`)
+
+---
+
+## 5. Core Architecture (`model/Thgnn.py`)
+
+The model class is `StockHeteGAT`.
+
+## 5.1 Components
+
+1. **Temporal encoder**: GRU
+   - input size `in_features` (default 6)
+   - hidden size `hidden_dim`
+   - `num_layers`
+   - `batch_first=True`
+
+2. **Graph encoders**:
+   - `pos_gat`: `GraphAttnMultiHead`
+   - `neg_gat`: `GraphAttnMultiHead`
+
+3. **Projection heads**:
+   - `mlp_self`, `mlp_pos`, `mlp_neg` (all to `hidden_dim`)
+
+4. **Semantic fusion**:
+   - stack three embeddings `[self, pos, neg]`
+   - `GraphAttnSemIndividual` computes attention over the 3 semantic channels
+
+5. **Normalization + predictor**:
+   - `PairNorm(mode='PN-SI')`
+   - linear predictor to `predictor_out_dim` (horizon-aware)
+
+## 5.2 Forward Pass (high level)
+
+Given `(features, pos_adj, neg_adj)`:
+
+1. `GRU(features) -> support`
+2. `pos_gat(support, pos_adj)` and `neg_gat(support, neg_adj)`
+3. project self/pos/neg embeddings
+4. semantic attention fusion over 3 channels
+5. PairNorm
+6. linear prediction
+
+## 5.3 Initialization
+
+- Linear layers initialized with Xavier uniform (`gain=0.02`).
+
+---
+
+## 6. Baseline Training Script (`main.py`)
+
+## 6.1 Purpose
+
+- Standard train/val split by index.
+- MSE-based regression training.
+- Generates validation predictions.
+- Performs walk-forward retraining and one-step inference.
+
+## 6.2 Default Training Hyperparameters (`Args`)
+
+- `device='cpu'`
+- `max_epochs=60`
+- `epochs_eval=10`
+- `lr=0.0002`
+- `scheduler=StepLR(step_size=5000, gamma=0.9)`
+- `hidden_dim=128`
+- `num_heads=8`
+- `out_features=32`
+- `batch_size=1`
+- `loss_fcn=mse_loss`
+
+## 6.3 Output Files
+
+- Model checkpoints: `data/model_saved/{pre_data}_epoch_60.dat`
+- Validation predictions: `data/prediction/pred.csv`
+- Walk-forward predictions: `data/prediction/walk_forward_pred.csv`
+
+---
+
+## 7. Extended Script (`new_main.py`)
+
+## 7.1 Purpose
+
+- Enhanced operational script for:
+  - robust data extraction (`extract_data_fixed`)
+  - progress bars
+  - training + prediction + walk-forward
+  - portfolio backtesting and visualization
+
+## 7.2 Key Differences vs `main.py`
+
+- Auto device selection: CUDA if available.
+- Additional error handling for malformed samples.
+- Walk-forward inference gracefully skipped when no future sample exists.
+- Backtesting module with:
+  - total return, annualized return, volatility, Sharpe, Sortino, max drawdown, Calmar, win rate.
+
+## 7.3 Backtesting Implementation Notes (thesis caveat)
+
+- If true close is unavailable in prediction data, script attempts:
+  1. merge from daily stock CSVs
+  2. fallback synthetic close from cumulative product of return series in `nifty50.pkl`
+- Synthetic close is suitable for relative/ranking strategy checks, but not exact absolute-price realism.
+- Transaction-cost-heavy rebalance behavior can dominate outcomes if holdings are not mark-to-market with external execution assumptions.
+
+## 7.4 Default `__main__` Split Behavior
+
+- Trains up to `2023-12-29`, validates from `2024-01-01`.
+
+---
+
+## 8. IC-Ranked Training (`train_ic_ranked.py`)
+
+## 8.1 Motivation
+
+Baseline MSE training can collapse to near-mean predictions (low dispersion).  
+`train_ic_ranked.py` adds ranking and dispersion pressure.
+
+## 8.2 Composite Loss
+
+For masked predictions `pred` and targets `target`:
+
+- `mse = MSE(pred, target)`
+- `corr = Pearson(pred, target)`
+- `ic_loss = 1 - corr`
+- `pred_std = std(pred)`
+- `target_std = std(target)`
+- `dispersion_penalty = ReLU(min_dispersion_ratio * target_std - pred_std)`
+
+Final objective:
+
+`loss = mse_weight * mse + ic_weight * ic_loss + dispersion_weight * dispersion_penalty`
+
+## 8.3 Default Hyperparameters
+
+- date split:
+  - train start: `2015-01-01`
+  - train end: `2023-12-29`
+  - val start: `2024-01-01`
+  - val end: `2025-12-31`
+- model:
+  - `hidden_dim=128`, `num_heads=8`, `num_layers=1`, `out_features=32`
+- optimizer:
+  - `AdamW(lr=1e-4, weight_decay=1e-4)`
+  - `CosineAnnealingLR(T_max=epochs)`
+- loss weights:
+  - `mse_weight=1.0`
+  - `ic_weight=0.35`
+  - `dispersion_weight=0.2`
+  - `min_dispersion_ratio=0.2`
+- training:
+  - `epochs=60`
+  - early stop patience `15`
+  - seed `42`
+
+## 8.4 Model Selection
+
+- Best checkpoint selected by:
+  1. highest validation IC
+  2. tie-break by lower validation MSE
+
+Saved as:
+
+- `data/model_saved/{pre_data}_icrank_best.dat`
+
+Checkpoint includes:
+
+- model weights
+- best epoch
+- `val_ic`, `val_mse`
+- training config
+- split indices
+
+---
+
+## 9. Training Utilities That Affect Results
+
+## 9.1 Losses (`trainer/trainer.py`)
+
+- `mse_loss`: main regression loss.
+- `bce_loss`: binary classification loss mode.
+
+## 9.2 Data Extraction
+
+- `extract_data(...)` handles batch-dim squeezing conservatively.
+- `train_epoch(...)` skips malformed samples and non-3D feature tensors.
+- `eval_epoch(...)` averages loss across full validation loader.
+
+## 9.3 Dataset Split and Purging (`data_loader.py`)
+
+- `AllGraphDataSampler` uses index ranges:
+  - train: `[data_start, data_middle)`
+  - val: `[data_middle, data_end)`
+- Supports `purge_gap`; if omitted, inferred as `horizon - 1` from labels.
+- Invalid/malformed samples are skipped during loading.
+
+---
+
+## 10. Important Thesis Discussion Points
+
+## 10.1 Leakage Control
+
+- Relation generation and sample generation are now date-aligned per day.
+- This is critical: graph at date `t` uses relation ending at `t`, not future month-end relations.
+
+## 10.2 Why Low MSE May Be Misleading
+
+- Targets are decimal returns with small magnitude.
+- Small MSE can occur with weak directional skill.
+- Must report:
+  - IC (cross-sectional and/or per-stock)
+  - sign accuracy
+  - prediction dispersion ratio
+  - portfolio spread metrics
+
+## 10.3 Calibration vs Ranking Tradeoff
+
+- MSE-only models tend to under-dispersed predictions.
+- IC/dispersion regularization increases ranking signal but can over-amplify volatility.
+- Hyperparameter ablation (e.g., conservative/balanced/aggressive) is essential.
+
+## 10.4 Backtest Interpretation Limits
+
+- If synthetic close is used, PnL is approximate.
+- Rebalancing assumptions and transaction cost model materially affect returns.
+- Emphasize robustness checks (turnover sensitivity, slippage assumptions).
+
+---
+
+## 11. Suggested Thesis Tables/Figures
+
+1. Data pipeline diagram:
+   - raw OHLCV -> `nifty50.pkl` -> relation matrices -> graph samples.
+2. Model architecture figure:
+   - GRU + dual GAT + semantic attention + predictor.
+3. Hyperparameter table:
+   - baseline (`main.py`), extended (`new_main.py`), IC-ranked (`train_ic_ranked.py`).
+4. Leakage-control comparison:
+   - old monthly relation assignment vs current daily alignment.
+5. Ablation table:
+   - `(ic_weight, dispersion_weight, min_dispersion_ratio)` vs `(val IC, val MSE, spread ratio)`.
+6. Diagnostic plots:
+   - actual vs predicted return
+   - prediction dispersion metrics
+   - top/bottom portfolio spread over time.
+
+---
+
+## 12. Reproducibility Checklist
+
+- Fix random seeds (`train_ic_ranked.py` sets seed).
+- Document exact commit hash and dataset date range.
+- Save all checkpoint configs and split metadata.
+- Report GPU/CPU environment and PyTorch version.
+- Report filtering rules for invalid samples.
+
+---
+
+## 13. Quick Reference: Default Outputs
+
+- Relations: `data/relation/*.csv`
+- Graph samples: `data/data_train_predict/*.pkl`
+- Daily stock maps: `data/daily_stock/*.csv`
+- Baseline predictions: `data/prediction/pred.csv`
+- Walk-forward predictions: `data/prediction/walk_forward_pred.csv`
+- Checkpoints:
+  - baseline: `data/model_saved/{pre_data}_epoch_60.dat`
+  - IC-ranked best: `data/model_saved/{pre_data}_icrank_best.dat`
+- Backtest results: `data/backtest_results/*`
+
