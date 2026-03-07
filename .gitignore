@@ -5,6 +5,7 @@
 
 # CSV files
 *.csv
+*.pkl
 
 # Python
 __pycache__/
