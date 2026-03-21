@@ -105,16 +105,19 @@ class StockHeteGAT(nn.Module):
         num_layers=1,
         predictor_out_dim=1,
         predictor_activation=None,
+        dropout=0.3,
     ):
         super(StockHeteGAT, self).__init__()
+        self.input_norm = nn.LayerNorm(in_features)
         self.encoding = nn.GRU(
             input_size=in_features,
             hidden_size=hidden_dim,
             num_layers=num_layers,
             batch_first=True,
             bidirectional=False,
-            dropout=0.1 if num_layers > 1 else 0.0
+            dropout=dropout if num_layers > 1 else 0.0
         )
+        self.drop = nn.Dropout(p=dropout)
         self.pos_gat = GraphAttnMultiHead(
             in_features=hidden_dim,
             out_features=out_features,
@@ -142,13 +145,19 @@ class StockHeteGAT(nn.Module):
                 nn.init.xavier_uniform_(m.weight, gain=0.02)
 
     def forward(self, inputs, pos_adj, neg_adj, requires_weight=False):
+        inputs = self.input_norm(inputs)
+        # Cross-sectional demean: for each (timestep, channel), subtract the
+        # market-wide average across all N stocks. This removes the common beta
+        # factor so the GRU focuses on stock-specific alpha, directly aligned
+        # with the cross-sectional IC objective.
+        inputs = inputs - inputs.mean(dim=0, keepdim=True)
         _, support = self.encoding(inputs)
-        support = support.squeeze()
+        support = self.drop(support.squeeze())
         pos_support, pos_attn_weights = self.pos_gat(support, pos_adj, requires_weight)
         neg_support, neg_attn_weights = self.neg_gat(support, neg_adj, requires_weight)
-        support = self.mlp_self(support)
-        pos_support = self.mlp_pos(pos_support)
-        neg_support = self.mlp_neg(neg_support)
+        support = self.drop(torch.relu(self.mlp_self(support)))
+        pos_support = self.drop(torch.relu(self.mlp_pos(pos_support)))
+        neg_support = self.drop(torch.relu(self.mlp_neg(neg_support)))
         all_embedding = torch.stack((support, pos_support, neg_support), dim=1)
         all_embedding, sem_attn_weights = self.sem_gat(all_embedding, requires_weight)
         all_embedding = self.pn(all_embedding)

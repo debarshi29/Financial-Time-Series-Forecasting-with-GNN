@@ -1,8 +1,12 @@
 # Data Leakage Analysis Report - THGNN
 
-## Executive Summary
+> **Status (2026-03-21): The primary leakage described below (monthly relation matrices) has been fixed.** `utils/generate_relation.py` now generates one relation matrix per trading day, each using only the 20 days ending on that date. `rebuild_graph_data.py` also sets the diagonal to zero before applying the threshold, ensuring clean adjacency construction. The original analysis is preserved below for reference.
 
-**CRITICAL DATA LEAKAGE DETECTED**: The model achieves suspiciously low MSE because it has access to **future correlation information** when making predictions. The adjacency (relation) matrix for each day is calculated using data from that entire month, including days that haven't occurred yet relative to the prediction date.
+---
+
+## Executive Summary (Historical)
+
+**CRITICAL DATA LEAKAGE (NOW FIXED)**: The original model achieved suspiciously low MSE because it had access to **future correlation information**. The adjacency (relation) matrix for each day was calculated using data from that entire month, including days that hadn't occurred yet relative to the prediction date.
 
 ---
 
@@ -203,11 +207,9 @@ print(f"Jan 2020 relation edges: {build_adj(rel_jan)}")
 
 ## Conclusion
 
-The THGNN model as currently implemented has **critical data leakage** through the relation/adjacency matrix. The model sees future correlation patterns when making predictions, which explains the suspiciously low MSE scores.
+**This leakage has been resolved.** The current pipeline generates one relation CSV per trading day, each covering only the 20 trading days ending on that date. The graph sample for date `t` therefore uses only information available at time `t`.
 
-**Immediate action required**: Fix the relation generation to use rolling windows that do not include future data.
-
-**Estimated impact**: After fixing, expect:
-- MSE to increase by 10-100x
-- IC to drop to more realistic levels
-- Strategy returns to be more modest
+Realistic post-fix performance targets:
+- MSE: ~0.0001–0.001 (decimal return scale)
+- Daily cross-sectional IC: 0.02–0.05 for a well-trained model
+- IC > 0.10 would be strong for Nifty 50 daily returns

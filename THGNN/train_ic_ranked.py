@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
@@ -21,6 +22,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 TRAIN_DATA_DIR = DATA_DIR / "data_train_predict"
 MODEL_DIR = DATA_DIR / "model_saved"
+PLOT_DIR = DATA_DIR / "plots"
 
 
 @dataclass
@@ -29,6 +31,8 @@ class SplitIndices:
     train_end_exclusive: int
     val_start: int
     val_end_exclusive: int
+    test_start: int
+    test_end_exclusive: int
     pre_data: str
 
 
@@ -39,10 +43,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-start-date", type=str, default="2015-01-01")
     parser.add_argument("--train-end-date", type=str, default="2023-12-29")
     parser.add_argument("--val-start-date", type=str, default="2024-01-01")
-    parser.add_argument("--val-end-date", type=str, default="2025-12-31")
+    parser.add_argument("--val-end-date", type=str, default="2024-12-31")
+    parser.add_argument("--test-start-date", type=str, default="2025-01-01")
+    parser.add_argument("--test-end-date", type=str, default="2026-2-28")
     parser.add_argument("--epochs", type=int, default=60)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--weight-decay", type=float, default=1e-4)
+    parser.add_argument("--weight-decay", type=float, default=1e-3)
+    parser.add_argument("--dropout", type=float, default=0.3)
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--num-heads", type=int, default=8)
     parser.add_argument("--num-layers", type=int, default=1)
@@ -51,6 +58,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ic-weight", type=float, default=0.35)
     parser.add_argument("--dispersion-weight", type=float, default=0.2)
     parser.add_argument("--min-dispersion-ratio", type=float, default=0.2)
+    parser.add_argument("--target-horizon", type=int, default=0,
+                        help="Which label horizon to train on (0=next-day, 1, 2). "
+                             "Avoids conflicting gradients from negatively correlated horizons.")
     parser.add_argument("--patience", type=int, default=15)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
@@ -68,36 +78,66 @@ def _index_for_date(file_dates: list[pd.Timestamp], date_str: str) -> int:
     for idx, d in enumerate(file_dates):
         if d >= dt:
             return idx
+    # Requested date is beyond all available data — return last index so the
+    # caller can clamp it. A hard error here would break valid "train up to
+    # latest available data" usage patterns; the caller validates ordering.
     return len(file_dates) - 1
 
 
 def compute_split_indices(files: list[str], args: argparse.Namespace) -> SplitIndices:
     file_dates = [pd.to_datetime(Path(name).stem).normalize() for name in files]
+    min_date = file_dates[0]
+    max_date = file_dates[-1]
+
     train_start = _index_for_date(file_dates, args.train_start_date)
-    train_end_idx = _index_for_date(file_dates, args.train_end_date)
+    train_end_exclusive = _index_for_date(file_dates, args.train_end_date) + 1
     val_start = _index_for_date(file_dates, args.val_start_date)
     val_end_exclusive = _index_for_date(file_dates, args.val_end_date) + 1
-    val_end_exclusive = min(val_end_exclusive, len(files))
+    test_start = _index_for_date(file_dates, args.test_start_date)
+    test_end_exclusive = _index_for_date(file_dates, args.test_end_date) + 1
 
-    # Force temporal ordering.
-    if val_start <= train_start:
-        raise ValueError("val_start_date must be after train_start_date.")
-    if train_end_idx >= val_start:
-        train_end_exclusive = val_start
-    else:
-        train_end_exclusive = train_end_idx + 1
+    val_end_exclusive = min(val_end_exclusive, len(files))
+    test_end_exclusive = min(test_end_exclusive, len(files))
+
+    if train_end_exclusive > len(files):
+        train_end_exclusive = len(files)
+
+    if not (train_start < train_end_exclusive <= val_start < val_end_exclusive <= test_start < test_end_exclusive):
+        raise ValueError(
+            "Invalid split ordering. Required: "
+            "train_start < train_end <= val_start < val_end <= test_start < test_end. "
+            f"Resolved indices: train [{train_start}, {train_end_exclusive}), "
+            f"val [{val_start}, {val_end_exclusive}), "
+            f"test [{test_start}, {test_end_exclusive})."
+        )
 
     if train_end_exclusive <= train_start:
         raise ValueError("Training split is empty.")
     if val_end_exclusive <= val_start:
         raise ValueError("Validation split is empty.")
+    if test_end_exclusive <= test_start:
+        raise ValueError("Test split is empty.")
 
     pre_data = Path(files[train_end_exclusive - 1]).stem
+
+    if min_date > pd.to_datetime(args.train_start_date):
+        print(
+            f"Warning: Requested train start {args.train_start_date} is earlier than available data. "
+            f"Using first available sample {min_date.date()}."
+        )
+    if max_date < pd.to_datetime(args.test_end_date):
+        print(
+            f"Warning: Requested test end {args.test_end_date} exceeds available data. "
+            f"Using last available sample {max_date.date()}."
+        )
+
     return SplitIndices(
         train_start=train_start,
         train_end_exclusive=train_end_exclusive,
         val_start=val_start,
         val_end_exclusive=val_end_exclusive,
+        test_start=test_start,
+        test_end_exclusive=test_end_exclusive,
         pre_data=pre_data,
     )
 
@@ -114,15 +154,45 @@ def _ensure_2d(x: torch.Tensor) -> torch.Tensor:
     return x
 
 
-def pearson_corr(x: torch.Tensor, y: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
-    x = x.reshape(-1)
-    y = y.reshape(-1)
-    x = x - x.mean()
-    y = y - y.mean()
-    denom = torch.sqrt(torch.sum(x * x) * torch.sum(y * y) + eps)
-    if denom <= eps:
-        return torch.tensor(0.0, device=x.device)
-    return torch.sum(x * y) / denom
+def _soft_rank(x: torch.Tensor, temperature: float = 0.01) -> torch.Tensor:
+    """Differentiable approximation of rank via pairwise sigmoid comparisons.
+
+    For each element x_i, its soft rank ≈ 1 + Σ_{j} sigmoid((x_i - x_j) / temperature).
+    As temperature → 0 this converges to true rank; larger temperature smooths gradients.
+    O(N²) in the number of stocks — fine for N ≈ 50.
+    """
+    diff = x.unsqueeze(0) - x.unsqueeze(1)  # (N, N): diff[i, j] = x[i] - x[j]
+    return torch.sigmoid(diff / temperature).sum(dim=1)  # (N,)
+
+
+def cross_sectional_ic(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    eps: float = 1e-8,
+    temperature: float = 0.01,
+) -> torch.Tensor:
+    """Differentiable cross-sectional IC using soft Spearman rank correlation.
+
+    Spearman IC = Pearson correlation of ranks. Using differentiable soft ranks
+    gives a proper ranking-based gradient signal that is robust to outlier returns,
+    unlike raw Pearson IC which can be dominated by a single large-move stock.
+    Target ranks are detached — gradients only flow through predictions.
+    """
+    pred_flat = pred.reshape(-1)
+    target_flat = target.reshape(-1)
+    if pred_flat.numel() < 2:
+        return torch.tensor(0.0, device=pred.device)
+
+    pred_rank = _soft_rank(pred_flat, temperature)
+    # Detach target: its ranks are fixed labels, not a learnable quantity.
+    target_rank = _soft_rank(target_flat.detach(), temperature).detach()
+
+    pred_r = pred_rank - pred_rank.mean()
+    target_r = target_rank - target_rank.mean()
+    denom = torch.sqrt((pred_r ** 2).sum() * (target_r ** 2).sum() + eps)
+    if denom.item() <= eps:
+        return torch.tensor(0.0, device=pred.device)
+    return torch.sum(pred_r * target_r) / denom
 
 
 def composite_loss(
@@ -138,13 +208,18 @@ def composite_loss(
     target = _ensure_2d(target)
 
     mse = F.mse_loss(pred, target)
-    corr = pearson_corr(pred, target)
+    corr = cross_sectional_ic(pred, target)
     ic_loss = 1.0 - corr
 
     pred_std = pred.reshape(-1).std(unbiased=False)
     target_std = target.reshape(-1).std(unbiased=False).detach()
     min_std = min_dispersion_ratio * target_std
     dispersion_penalty = F.relu(min_std - pred_std)
+
+    with torch.no_grad():
+        pred_flat = pred.reshape(-1)
+        target_flat = target.reshape(-1)
+        dir_acc = ((pred_flat > 0) == (target_flat > 0)).float().mean()
 
     loss = (
         mse_weight * mse
@@ -157,6 +232,7 @@ def composite_loss(
         "pred_std": float(pred_std.detach().cpu().item()),
         "target_std": float(target_std.detach().cpu().item()),
         "disp_pen": float(dispersion_penalty.detach().cpu().item()),
+        "dir_acc": float(dir_acc.cpu().item()),
     }
     return loss, metrics
 
@@ -171,13 +247,17 @@ def run_epoch(
     training = optimizer is not None
     model.train(mode=training)
 
-    sums = {"loss": 0.0, "mse": 0.0, "ic": 0.0, "pred_std": 0.0, "target_std": 0.0, "disp_pen": 0.0}
+    sums = {"loss": 0.0, "mse": 0.0, "ic": 0.0, "pred_std": 0.0, "target_std": 0.0, "disp_pen": 0.0, "dir_acc": 0.0}
     steps = 0
 
     for batch in loader:
         sample_list = batch if isinstance(batch, list) else [batch]
         for data in sample_list:
             pos_adj, neg_adj, features, labels, mask = extract_data(data, str(device))
+            # Use a single horizon to avoid conflicting IC gradients across
+            # negatively-correlated label horizons (e.g. corr(h0,h2) = -0.24).
+            if labels.dim() > 1 and labels.shape[-1] > 1:
+                labels = labels[:, args.target_horizon]
             mask_t = _mask_to_tensor(mask, len(labels), device)
             logits = model(features, pos_adj, neg_adj)
 
@@ -200,10 +280,11 @@ def run_epoch(
             if training:
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
 
             sums["loss"] += float(loss.detach().cpu().item())
-            for key in ["mse", "ic", "pred_std", "target_std", "disp_pen"]:
+            for key in ["mse", "ic", "pred_std", "target_std", "disp_pen", "dir_acc"]:
                 sums[key] += metrics[key]
             steps += 1
 
@@ -216,6 +297,7 @@ def main() -> None:
     args = parse_args()
     set_seed(args.seed)
     args.model_dir.mkdir(parents=True, exist_ok=True)
+    PLOT_DIR.mkdir(parents=True, exist_ok=True)
 
     files = sorted([p.name for p in args.data_dir.glob("*.pkl")])
     if not files:
@@ -233,6 +315,10 @@ def main() -> None:
         f"Val:   {files[split.val_start]} -> {files[split.val_end_exclusive - 1]} "
         f"({split.val_end_exclusive - split.val_start} samples)"
     )
+    print(
+        f"Test:  {files[split.test_start]} -> {files[split.test_end_exclusive - 1]} "
+        f"({split.test_end_exclusive - split.test_start} samples)"
+    )
     print(f"Checkpoint pre_data: {split.pre_data}")
 
     train_ds = AllGraphDataSampler(
@@ -248,14 +334,21 @@ def main() -> None:
         data_middle=split.val_start,
         data_end=split.val_end_exclusive,
     )
-    if len(train_ds) == 0 or len(val_ds) == 0:
-        raise RuntimeError("Train/val dataset empty after split filtering.")
+    test_ds = AllGraphDataSampler(
+        base_dir=str(args.data_dir),
+        mode="val",
+        data_start=split.train_start,
+        data_middle=split.test_start,
+        data_end=split.test_end_exclusive,
+    )
+    if len(train_ds) == 0 or len(val_ds) == 0 or len(test_ds) == 0:
+        raise RuntimeError("Train/val/test dataset empty after split filtering.")
 
     train_loader = DataLoader(train_ds, batch_size=1, pin_memory=True, collate_fn=lambda x: x)
     val_loader = DataLoader(val_ds, batch_size=1, pin_memory=True, collate_fn=lambda x: x)
+    test_loader = DataLoader(test_ds, batch_size=1, pin_memory=True, collate_fn=lambda x: x)
 
-    _, _, _, sample_labels, _ = extract_data(train_ds[0], str(device))
-    target_dim = int(sample_labels.shape[-1]) if sample_labels.dim() > 1 else 1
+    target_dim = 1  # single horizon prediction
 
     model = StockHeteGAT(
         hidden_dim=args.hidden_dim,
@@ -264,6 +357,7 @@ def main() -> None:
         out_features=args.out_features,
         predictor_out_dim=target_dim,
         predictor_activation=None,
+        dropout=args.dropout,
     ).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -274,19 +368,27 @@ def main() -> None:
     best_epoch = -1
     wait = 0
     best_path = args.model_dir / f"{split.pre_data}_icrank_best.dat"
+    history = {"epoch": [], "train_loss": [], "val_loss": [], "test_loss": []}
 
     pbar = tqdm(range(1, args.epochs + 1), desc="IC-ranked epochs", unit="epoch")
     for epoch in pbar:
         train_metrics = run_epoch(train_loader, model, device, optimizer, args)
         val_metrics = run_epoch(val_loader, model, device, None, args)
+        test_metrics = run_epoch(test_loader, model, device, None, args)
         scheduler.step()
 
         pbar.set_postfix(
             train_mse=f"{train_metrics['mse']:.6f}",
             val_mse=f"{val_metrics['mse']:.6f}",
             val_ic=f"{val_metrics['ic']:.4f}",
+            val_dir=f"{val_metrics['dir_acc']:.3f}",
+            test_dir=f"{test_metrics['dir_acc']:.3f}",
             spread=f"{(val_metrics['pred_std'] / max(val_metrics['target_std'], 1e-8)):.3f}",
         )
+        history["epoch"].append(epoch)
+        history["train_loss"].append(train_metrics["loss"])
+        history["val_loss"].append(val_metrics["loss"])
+        history["test_loss"].append(test_metrics["loss"])
 
         improved = (val_metrics["ic"] > best_val_ic) or (
             np.isclose(val_metrics["ic"], best_val_ic) and val_metrics["mse"] < best_val_mse
@@ -313,11 +415,44 @@ def main() -> None:
                 print(f"Early stopping at epoch {epoch} (patience={args.patience}).")
                 break
 
+    best_checkpoint = torch.load(best_path, map_location=device, weights_only=False)
+    model.load_state_dict(best_checkpoint["model"])
+    final_train_metrics = run_epoch(train_loader, model, device, None, args)
+    final_val_metrics = run_epoch(val_loader, model, device, None, args)
+    final_test_metrics = run_epoch(test_loader, model, device, None, args)
+
+    fig = plt.figure(figsize=(10, 6))
+    plt.plot(history["epoch"], history["train_loss"], label="Train Loss", linewidth=2)
+    plt.plot(history["epoch"], history["val_loss"], label="Validation Loss", linewidth=2)
+    plt.plot(history["epoch"], history["test_loss"], label="Test Loss", linewidth=2)
+    plt.xlabel("Epoch")
+    plt.ylabel("Composite Loss")
+    plt.title("IC-Ranked Training/Validation/Test Loss")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    loss_plot_path = PLOT_DIR / f"{split.pre_data}_icrank_loss_curve.png"
+    plt.savefig(loss_plot_path, dpi=200)
+    plt.close(fig)
+
     print("\nTraining complete.")
     print(f"Best epoch: {best_epoch}")
     print(f"Best val IC: {best_val_ic:.4f}")
     print(f"Best val MSE: {best_val_mse:.6f}")
     print(f"Saved best checkpoint: {best_path}")
+    print(
+        "Final metrics from best checkpoint | "
+        f"train_loss={final_train_metrics['loss']:.6f}, "
+        f"val_loss={final_val_metrics['loss']:.6f}, "
+        f"test_loss={final_test_metrics['loss']:.6f}"
+    )
+    print(
+        "Directional accuracy | "
+        f"train={final_train_metrics['dir_acc']:.4f}, "
+        f"val={final_val_metrics['dir_acc']:.4f}, "
+        f"test={final_test_metrics['dir_acc']:.4f}"
+    )
+    print(f"Saved loss plot: {loss_plot_path}")
 
 
 if __name__ == "__main__":

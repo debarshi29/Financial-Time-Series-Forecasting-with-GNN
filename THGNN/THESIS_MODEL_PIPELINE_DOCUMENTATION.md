@@ -242,12 +242,12 @@ Baseline MSE training can collapse to near-mean predictions (low dispersion).
 
 ## 8.2 Composite Loss
 
-For masked predictions `pred` and targets `target`:
+For masked predictions `pred` and targets `target` (N stocks, one trading day):
 
 - `mse = MSE(pred, target)`
-- `corr = Pearson(pred, target)`
+- `corr = SoftSpearman(pred, target)` — differentiable cross-sectional rank IC (see below)
 - `ic_loss = 1 - corr`
-- `pred_std = std(pred)`
+- `pred_std = std(pred)`  — cross-sectional std of predictions for that day
 - `target_std = std(target)`
 - `dispersion_penalty = ReLU(min_dispersion_ratio * target_std - pred_std)`
 
@@ -255,23 +255,38 @@ Final objective:
 
 `loss = mse_weight * mse + ic_weight * ic_loss + dispersion_weight * dispersion_penalty`
 
+### Soft Spearman IC
+
+The IC term uses a **differentiable soft-rank Spearman correlation** rather than raw Pearson:
+
+1. For each stock `i`, compute its soft rank:
+   `rank_i = Σ_j sigmoid((pred_i − pred_j) / τ)`, where `τ = 0.01`
+2. Compute Pearson correlation between soft ranks of predictions and (detached) soft ranks of targets.
+
+This equals the Spearman rank correlation in the limit τ → 0 and is fully differentiable via autograd. It is more robust than Pearson IC, which can be dominated by a single stock with an extreme return magnitude. Target ranks are detached from the computation graph — gradients flow only through prediction ranks.
+
+**Note:** The IC value reported during training (logged as `ic`) reflects this soft Spearman approximation. Post-hoc evaluation scripts (`plot_date_range.py`, `plot_top_5_stocks_icrank.py`) compute true Spearman IC via `pandas.Series.corr(method="spearman")`; the two will be close but not identical due to the soft-rank approximation.
+
 ## 8.3 Default Hyperparameters
 
 - date split:
   - train start: `2015-01-01`
-  - train end: `2023-12-29`
+  - train end: `2023-12-29` (default; no hard ceiling — any date with pkl data is valid)
   - val start: `2024-01-01`
-  - val end: `2025-12-31`
+  - val end: `2024-12-31`
+  - test start: `2025-01-01`
+  - test end: `2026-02-28`
 - model:
   - `hidden_dim=128`, `num_heads=8`, `num_layers=1`, `out_features=32`
 - optimizer:
-  - `AdamW(lr=1e-4, weight_decay=1e-4)`
+  - `AdamW(lr=1e-4, weight_decay=1e-3)`
   - `CosineAnnealingLR(T_max=epochs)`
 - loss weights:
   - `mse_weight=1.0`
   - `ic_weight=0.35`
   - `dispersion_weight=0.2`
   - `min_dispersion_ratio=0.2`
+- IC objective: soft Spearman rank correlation (temperature τ=0.01)
 - training:
   - `epochs=60`
   - early stop patience `15`

@@ -22,10 +22,10 @@ graph TD
 
     subgraph Modeling ["Stage 3: Training & Inference"]
         GraphSnapshots -->|data_loader.py| DataLoader
-        DataLoader -->|main_advanced.py| Model[("THGNN Model")]
+        DataLoader -->|train_ic_ranked.py| Model[("THGNN Model")]
         Model --> Trainer["trainer.py"]
-        Trainer --> Predictions["data/prediction/*.csv"]
         Trainer --> SavedModel["data/model_saved/*.dat"]
+        Trainer --> Plots["data/plots/*.png"]
     end
 
     Data_Preparation --> Data_Generation
@@ -43,8 +43,8 @@ graph TD
 | | `generate_relation.py` | Computes correlation between stocks to build the graph edges. |
 | | `generate_data.py` | Fuses features and relations into daily graph snapshots for the model. |
 | **`trainer/`** | `trainer.py` | Contains the training and evaluation loops (`train_epoch`, `eval_epoch`) and loss functions. |
-| **`root`** | `main_advanced.py` | The main entry point. Orchestrates loading, initialization, training, and plotting. |
-| | `data_loader.py` | efficient `PyTorch Dataset` class for loading the pickled graph files. |
+| **`root`** | `train_ic_ranked.py` | **Primary training script.** Composite MSE + soft-Spearman IC + dispersion loss, early stopping, checkpoint saving. |
+| | `data_loader.py` | Efficient `PyTorch Dataset` class for loading the pickled graph files. |
 
 ---
 
@@ -96,12 +96,13 @@ graph LR
 
 ## 4. Key Script Details
 
-### `main_advanced.py` (The Orchestra)
-This is the recommended entry point. It adds significant functionality over the legacy `main.py`.
+### `train_ic_ranked.py` (Primary Training Script)
+This is the recommended entry point for all training.
 
-*   **Date-Based Indexing**: You can specify `train_end_date="2024-01-01"` instead of calculating array indices manually.
-*   **Automatic Visualization**: It generates `loss_curve.png` and backtest metric plots in `data/plots/`.
-*   **Walk-Forward Training**: It can optionally retrain the model on the entire history to predict the very next "live" step.
+*   **Date-Based Splits**: Specify `--train-start-date`, `--train-end-date`, etc. — indices are resolved automatically. No hard ceiling on training dates.
+*   **Composite Loss**: MSE + soft Spearman IC loss (1 − rank correlation) + dispersion penalty. IC uses differentiable soft ranks, robust to outlier returns.
+*   **Automatic Visualization**: Saves a loss curve to `data/plots/<pre_data>_icrank_loss_curve.png` after training.
+*   **Early Stopping**: Stops after `--patience` epochs without validation IC improvement (default 15).
 
 ### `model/Thgnn_flexible.py` vs `Thgnn.py`
 *   **Standard (`Thgnn.py`)**: Has hardcoded input dimensions (often `in_features=6`). If your data has 7 columns (e.g., you added Moving Averages), it crashes.
@@ -132,5 +133,5 @@ python utils/generate_data.py --window 20 --horizon 1
 ### Step 4: Train
 ```bash
 # Run training and see results
-python main_advanced.py
+python train_ic_ranked.py
 ```
