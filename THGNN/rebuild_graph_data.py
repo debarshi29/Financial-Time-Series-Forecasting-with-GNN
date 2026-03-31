@@ -27,10 +27,11 @@ NIFTY_PKL = DATA_DIR / "nifty50.pkl"
 RELATION_DIR = DATA_DIR / "relation"
 OUT_DIR = DATA_DIR / "data_train_predict"
 
-FEATURE_COLS = ["open", "high", "low", "close", "to", "vol"]
+FEATURE_COLS = ["open", "high", "low", "close", "to", "vol", "mom5", "mom10", "mom20", "rsi14", "vol20"]
 LABEL_COL = "label"
 WINDOW = 20       # lookback days for features
 HORIZONS = 3      # number of forward-return labels (t+1, t+2, t+3)
+CLOSE_IDX = FEATURE_COLS.index("close")
 
 
 def parse_args() -> argparse.Namespace:
@@ -100,7 +101,19 @@ def build_sample(
     if len(features_list) != len(stocks):
         return None
 
-    features = torch.tensor(np.stack(features_list), dtype=torch.float32)  # (N, 20, 6)
+    features_np = np.stack(features_list)  # (N, WINDOW, n_base_features)
+
+    # Cross-sectional percentile rank of close return for each day in the window.
+    close_returns = features_np[:, :, CLOSE_IDX]  # (N, WINDOW)
+    n_stocks = close_returns.shape[0]
+    cs_ranks = np.zeros_like(close_returns)
+    if n_stocks > 1:
+        for t in range(close_returns.shape[1]):
+            col = close_returns[:, t]
+            cs_ranks[:, t] = np.argsort(np.argsort(col)).astype(np.float32) / (n_stocks - 1)
+    features_np = np.concatenate([features_np, cs_ranks[:, :, np.newaxis]], axis=2)  # (N, WINDOW, n_features+1)
+
+    features = torch.tensor(features_np, dtype=torch.float32)
     labels = torch.tensor(np.stack(labels_list), dtype=torch.float32)       # (N, 3)
 
     # Build adjacency from correlation matrix

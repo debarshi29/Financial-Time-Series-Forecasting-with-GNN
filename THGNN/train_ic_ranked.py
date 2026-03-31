@@ -48,20 +48,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-end-date", type=str, default="2026-2-28")
     parser.add_argument("--epochs", type=int, default=60)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--weight-decay", type=float, default=1e-3)
+    parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--dropout", type=float, default=0.3)
-    parser.add_argument("--hidden-dim", type=int, default=128)
-    parser.add_argument("--num-heads", type=int, default=8)
+    parser.add_argument("--hidden-dim", type=int, default=64)
+    parser.add_argument("--num-heads", type=int, default=4)
     parser.add_argument("--num-layers", type=int, default=1)
     parser.add_argument("--out-features", type=int, default=32)
+    parser.add_argument("--in-features", type=int, default=12,
+                        help="Number of input features per stock per timestep. "
+                             "Must match the feature dimension in the graph samples.")
     parser.add_argument("--mse-weight", type=float, default=1.0)
     parser.add_argument("--ic-weight", type=float, default=0.35)
     parser.add_argument("--dispersion-weight", type=float, default=0.2)
     parser.add_argument("--min-dispersion-ratio", type=float, default=0.2)
+    parser.add_argument("--max-dispersion-ratio", type=float, default=2.0,
+                        help="Penalize pred_std > max_dispersion_ratio * target_std to prevent over-spreading.")
     parser.add_argument("--target-horizon", type=int, default=0,
                         help="Which label horizon to train on (0=next-day, 1, 2). "
                              "Avoids conflicting gradients from negatively correlated horizons.")
-    parser.add_argument("--patience", type=int, default=15)
+    parser.add_argument("--patience", type=int, default=20)
+    parser.add_argument("--ic-warmup-epochs", type=int, default=10,
+                        help="Ramp IC loss weight from 0 to --ic-weight over this many epochs. "
+                             "Prevents noisy IC gradients from dominating before MSE fitting.")
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -74,6 +82,7 @@ def set_seed(seed: int) -> None:
 
 
 def _index_for_date(file_dates: list[pd.Timestamp], date_str: str) -> int:
+    """Return index of first file with date >= date_str (for start boundaries)."""
     dt = pd.to_datetime(date_str).normalize()
     for idx, d in enumerate(file_dates):
         if d >= dt:
@@ -84,17 +93,34 @@ def _index_for_date(file_dates: list[pd.Timestamp], date_str: str) -> int:
     return len(file_dates) - 1
 
 
+def _exclusive_end_index_for_date(file_dates: list[pd.Timestamp], date_str: str) -> int:
+    """Return exclusive-end index: number of files with date <= date_str.
+
+    Using first-file->=date + 1 for end boundaries fails when the end date
+    falls on a weekend/holiday — both the end date and the next start date
+    resolve to the same trading day, causing val_end > test_start.
+    This function walks forward and stops at the first file strictly after
+    date_str, so weekend/holiday end dates land on the last trading day before
+    the boundary rather than the first one after it.
+    """
+    dt = pd.to_datetime(date_str).normalize()
+    for idx, d in enumerate(file_dates):
+        if d > dt:
+            return idx
+    return len(file_dates)
+
+
 def compute_split_indices(files: list[str], args: argparse.Namespace) -> SplitIndices:
     file_dates = [pd.to_datetime(Path(name).stem).normalize() for name in files]
     min_date = file_dates[0]
     max_date = file_dates[-1]
 
     train_start = _index_for_date(file_dates, args.train_start_date)
-    train_end_exclusive = _index_for_date(file_dates, args.train_end_date) + 1
+    train_end_exclusive = _exclusive_end_index_for_date(file_dates, args.train_end_date)
     val_start = _index_for_date(file_dates, args.val_start_date)
-    val_end_exclusive = _index_for_date(file_dates, args.val_end_date) + 1
+    val_end_exclusive = _exclusive_end_index_for_date(file_dates, args.val_end_date)
     test_start = _index_for_date(file_dates, args.test_start_date)
-    test_end_exclusive = _index_for_date(file_dates, args.test_end_date) + 1
+    test_end_exclusive = _exclusive_end_index_for_date(file_dates, args.test_end_date)
 
     val_end_exclusive = min(val_end_exclusive, len(files))
     test_end_exclusive = min(test_end_exclusive, len(files))
@@ -154,11 +180,13 @@ def _ensure_2d(x: torch.Tensor) -> torch.Tensor:
     return x
 
 
-def _soft_rank(x: torch.Tensor, temperature: float = 0.01) -> torch.Tensor:
+def _soft_rank(x: torch.Tensor, temperature: float = 0.05) -> torch.Tensor:
     """Differentiable approximation of rank via pairwise sigmoid comparisons.
 
     For each element x_i, its soft rank ≈ 1 + Σ_{j} sigmoid((x_i - x_j) / temperature).
     As temperature → 0 this converges to true rank; larger temperature smooths gradients.
+    τ=0.05 (vs. original 0.01) gives smoother gradients — less risk of vanishing signal
+    when predictions are already approximately rank-ordered.
     O(N²) in the number of stocks — fine for N ≈ 50.
     """
     diff = x.unsqueeze(0) - x.unsqueeze(1)  # (N, N): diff[i, j] = x[i] - x[j]
@@ -169,7 +197,7 @@ def cross_sectional_ic(
     pred: torch.Tensor,
     target: torch.Tensor,
     eps: float = 1e-8,
-    temperature: float = 0.01,
+    temperature: float = 0.05,
 ) -> torch.Tensor:
     """Differentiable cross-sectional IC using soft Spearman rank correlation.
 
@@ -195,6 +223,40 @@ def cross_sectional_ic(
     return torch.sum(pred_r * target_r) / denom
 
 
+def _exact_ranks(x: torch.Tensor) -> torch.Tensor:
+    """Return 1..N ranks for a 1D tensor.
+
+    This is used only for evaluation / checkpoint selection, not for gradients.
+    Financial return labels are effectively continuous, so simple ordinal ranks
+    are sufficient here.
+    """
+    x_flat = x.reshape(-1)
+    order = torch.argsort(x_flat)
+    ranks = torch.empty_like(x_flat, dtype=torch.float32)
+    ranks[order] = torch.arange(1, x_flat.numel() + 1, device=x.device, dtype=torch.float32)
+    return ranks
+
+
+def exact_spearman_ic(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    pred_flat = pred.reshape(-1)
+    target_flat = target.reshape(-1)
+    if pred_flat.numel() < 2:
+        return torch.tensor(0.0, device=pred.device)
+
+    pred_rank = _exact_ranks(pred_flat)
+    target_rank = _exact_ranks(target_flat)
+    pred_r = pred_rank - pred_rank.mean()
+    target_r = target_rank - target_rank.mean()
+    denom = torch.sqrt((pred_r ** 2).sum() * (target_r ** 2).sum() + eps)
+    if denom.item() <= eps:
+        return torch.tensor(0.0, device=pred.device)
+    return torch.sum(pred_r * target_r) / denom
+
+
 def composite_loss(
     pred: torch.Tensor,
     target: torch.Tensor,
@@ -203,23 +265,27 @@ def composite_loss(
     ic_weight: float,
     dispersion_weight: float,
     min_dispersion_ratio: float,
+    max_dispersion_ratio: float = 2.0,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     pred = _ensure_2d(pred)
     target = _ensure_2d(target)
 
     mse = F.mse_loss(pred, target)
-    corr = cross_sectional_ic(pred, target)
-    ic_loss = 1.0 - corr
+    soft_corr = cross_sectional_ic(pred, target)
+    ic_loss = 1.0 - soft_corr
 
     pred_std = pred.reshape(-1).std(unbiased=False)
     target_std = target.reshape(-1).std(unbiased=False).detach()
     min_std = min_dispersion_ratio * target_std
-    dispersion_penalty = F.relu(min_std - pred_std)
+    max_std = max_dispersion_ratio * target_std
+    # Penalize both under- and over-spreading relative to target return distribution.
+    dispersion_penalty = F.relu(min_std - pred_std) + F.relu(pred_std - max_std)
 
     with torch.no_grad():
         pred_flat = pred.reshape(-1)
         target_flat = target.reshape(-1)
         dir_acc = ((pred_flat > 0) == (target_flat > 0)).float().mean()
+        exact_ic = exact_spearman_ic(pred_flat, target_flat)
 
     loss = (
         mse_weight * mse
@@ -228,7 +294,8 @@ def composite_loss(
     )
     metrics = {
         "mse": float(mse.detach().cpu().item()),
-        "ic": float(corr.detach().cpu().item()),
+        "ic": float(soft_corr.detach().cpu().item()),
+        "rank_ic": float(exact_ic.detach().cpu().item()),
         "pred_std": float(pred_std.detach().cpu().item()),
         "target_std": float(target_std.detach().cpu().item()),
         "disp_pen": float(dispersion_penalty.detach().cpu().item()),
@@ -243,11 +310,22 @@ def run_epoch(
     device: torch.device,
     optimizer: torch.optim.Optimizer | None,
     args: argparse.Namespace,
+    *,
+    ic_weight_override: float | None = None,
 ) -> dict[str, float]:
     training = optimizer is not None
     model.train(mode=training)
 
-    sums = {"loss": 0.0, "mse": 0.0, "ic": 0.0, "pred_std": 0.0, "target_std": 0.0, "disp_pen": 0.0, "dir_acc": 0.0}
+    sums = {
+        "loss": 0.0,
+        "mse": 0.0,
+        "ic": 0.0,
+        "rank_ic": 0.0,
+        "pred_std": 0.0,
+        "target_std": 0.0,
+        "disp_pen": 0.0,
+        "dir_acc": 0.0,
+    }
     steps = 0
 
     for batch in loader:
@@ -268,13 +346,15 @@ def run_epoch(
             if pred.numel() == 0 or target.numel() == 0:
                 continue
 
+            effective_ic_weight = args.ic_weight if ic_weight_override is None else ic_weight_override
             loss, metrics = composite_loss(
                 pred,
                 target,
                 mse_weight=args.mse_weight,
-                ic_weight=args.ic_weight,
+                ic_weight=effective_ic_weight,
                 dispersion_weight=args.dispersion_weight,
                 min_dispersion_ratio=args.min_dispersion_ratio,
+                max_dispersion_ratio=args.max_dispersion_ratio,
             )
 
             if training:
@@ -284,7 +364,7 @@ def run_epoch(
                 optimizer.step()
 
             sums["loss"] += float(loss.detach().cpu().item())
-            for key in ["mse", "ic", "pred_std", "target_std", "disp_pen", "dir_acc"]:
+            for key in ["mse", "ic", "rank_ic", "pred_std", "target_std", "disp_pen", "dir_acc"]:
                 sums[key] += metrics[key]
             steps += 1
 
@@ -351,6 +431,7 @@ def main() -> None:
     target_dim = 1  # single horizon prediction
 
     model = StockHeteGAT(
+        in_features=args.in_features,
         hidden_dim=args.hidden_dim,
         num_heads=args.num_heads,
         num_layers=args.num_layers,
@@ -361,7 +442,16 @@ def main() -> None:
     ).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+    warmup_epochs = 5
+    warmup_sched = torch.optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
+    )
+    cosine_sched = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=max(1, args.epochs - warmup_epochs)
+    )
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer, schedulers=[warmup_sched, cosine_sched], milestones=[warmup_epochs]
+    )
 
     best_val_ic = -np.inf
     best_val_mse = np.inf
@@ -372,7 +462,12 @@ def main() -> None:
 
     pbar = tqdm(range(1, args.epochs + 1), desc="IC-ranked epochs", unit="epoch")
     for epoch in pbar:
-        train_metrics = run_epoch(train_loader, model, device, optimizer, args)
+        # Ramp IC weight from 0 → target over ic_warmup_epochs to avoid noisy
+        # IC gradients dominating MSE fitting in early epochs.
+        ic_ramp = min(1.0, epoch / max(1, args.ic_warmup_epochs))
+        current_ic_weight = args.ic_weight * ic_ramp
+
+        train_metrics = run_epoch(train_loader, model, device, optimizer, args, ic_weight_override=current_ic_weight)
         val_metrics = run_epoch(val_loader, model, device, None, args)
         test_metrics = run_epoch(test_loader, model, device, None, args)
         scheduler.step()
@@ -380,7 +475,8 @@ def main() -> None:
         pbar.set_postfix(
             train_mse=f"{train_metrics['mse']:.6f}",
             val_mse=f"{val_metrics['mse']:.6f}",
-            val_ic=f"{val_metrics['ic']:.4f}",
+            val_ic=f"{val_metrics['rank_ic']:.4f}",
+            val_soft_ic=f"{val_metrics['ic']:.4f}",
             val_dir=f"{val_metrics['dir_acc']:.3f}",
             test_dir=f"{test_metrics['dir_acc']:.3f}",
             spread=f"{(val_metrics['pred_std'] / max(val_metrics['target_std'], 1e-8)):.3f}",
@@ -390,11 +486,11 @@ def main() -> None:
         history["val_loss"].append(val_metrics["loss"])
         history["test_loss"].append(test_metrics["loss"])
 
-        improved = (val_metrics["ic"] > best_val_ic) or (
-            np.isclose(val_metrics["ic"], best_val_ic) and val_metrics["mse"] < best_val_mse
+        improved = (val_metrics["rank_ic"] > best_val_ic) or (
+            np.isclose(val_metrics["rank_ic"], best_val_ic) and val_metrics["mse"] < best_val_mse
         )
         if improved:
-            best_val_ic = val_metrics["ic"]
+            best_val_ic = val_metrics["rank_ic"]
             best_val_mse = val_metrics["mse"]
             best_epoch = epoch
             wait = 0
@@ -403,6 +499,7 @@ def main() -> None:
                     "model": model.state_dict(),
                     "epoch": epoch,
                     "val_ic": best_val_ic,
+                    "val_soft_ic": val_metrics["ic"],
                     "val_mse": best_val_mse,
                     "config": vars(args),
                     "split": split.__dict__,

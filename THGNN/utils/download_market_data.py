@@ -66,7 +66,7 @@ NIFTY50_TICKERS_TRIAL: List[str] = ["ADANIENT.NS", "TCS.NS"]
     
 
 
-FEATURE_COLUMNS = ["open", "high", "low", "close", "to", "vol"]
+FEATURE_COLUMNS = ["open", "high", "low", "close", "to", "vol", "mom5", "mom10", "mom20", "rsi14", "vol20"]
 
 
 def _to_iterable(value: str | Iterable[str] | None) -> Iterable[str]:
@@ -131,6 +131,17 @@ def _build_features(data: pd.DataFrame, ticker: str) -> pd.DataFrame:
     feat["close"] = data["Close"].pct_change()
     feat["to"] = working["Turnover"].replace(0, np.nan).pct_change()
     feat["vol"] = data["Volume"].replace(0, np.nan).pct_change()
+
+    # Momentum: multi-period cumulative return from raw close price
+    feat["mom5"] = data["Close"].pct_change(periods=5)
+    feat["mom10"] = data["Close"].pct_change(periods=10)
+    feat["mom20"] = data["Close"].pct_change(periods=20)
+
+    # RSI-14, normalised to [0, 1] so it sits on a comparable scale to returns
+    feat["rsi14"] = _compute_rsi(data["Close"], period=14) / 100.0
+
+    # 20-day realised volatility (rolling std of daily returns)
+    feat["vol20"] = data["Close"].pct_change().rolling(window=20, min_periods=10).std()
 
     feat["label"] = feat["close"].shift(-1)
     feat = feat.dropna().reset_index().rename(columns={"Date": "dt"})

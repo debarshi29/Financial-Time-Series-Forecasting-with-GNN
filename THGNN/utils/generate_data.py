@@ -12,7 +12,7 @@ import torch
 from torch.autograd import Variable
 from tqdm import tqdm
 
-FEATURE_COLUMNS = ["open", "high", "low", "close", "to", "vol"]
+FEATURE_COLUMNS = ["open", "high", "low", "close", "to", "vol", "mom5", "mom10", "mom20", "rsi14", "vol20"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -192,7 +192,23 @@ def main() -> None:
             # Skip samples that cannot represent the entire relation graph.
             continue
 
-        features = torch.from_numpy(np.array(feature_all)).type(torch.float32)
+        features_np = np.array(feature_all)  # (N, window, n_base_features)
+
+        # Cross-sectional percentile rank of close return for each day in the window.
+        # For each timestep, ranks each stock's daily return among all N stocks (0=worst, 1=best).
+        # This gives the model explicit relative-performance signal that the GRU cannot derive
+        # from per-stock time-series alone.
+        close_idx = FEATURE_COLUMNS.index("close")
+        close_returns = features_np[:, :, close_idx]  # (N, window)
+        n_stocks = close_returns.shape[0]
+        cs_ranks = np.zeros_like(close_returns)
+        if n_stocks > 1:
+            for t in range(close_returns.shape[1]):
+                col = close_returns[:, t]
+                cs_ranks[:, t] = np.argsort(np.argsort(col)).astype(np.float32) / (n_stocks - 1)
+        features_np = np.concatenate([features_np, cs_ranks[:, :, np.newaxis]], axis=2)  # (N, window, n_features+1)
+
+        features = torch.from_numpy(features_np).type(torch.float32)
         label_tensor = torch.tensor(np.array(labels), dtype=torch.float32)
         mask = [True] * len(labels)
 

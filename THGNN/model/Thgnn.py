@@ -98,7 +98,7 @@ class GraphAttnSemIndividual(Module):
 class StockHeteGAT(nn.Module):
     def __init__(
         self,
-        in_features=6,
+        in_features=12,
         out_features=8,
         num_heads=8,
         hidden_dim=64,
@@ -142,7 +142,7 @@ class StockHeteGAT(nn.Module):
 
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight, gain=0.02)
+                nn.init.xavier_uniform_(m.weight)
 
     def forward(self, inputs, pos_adj, neg_adj, requires_weight=False):
         inputs = self.input_norm(inputs)

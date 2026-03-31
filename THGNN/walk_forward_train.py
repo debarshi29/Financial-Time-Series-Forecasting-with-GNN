@@ -104,9 +104,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dispersion-weight", type=float, default=0.2)
     parser.add_argument("--min-dispersion-ratio", type=float, default=0.2)
     parser.add_argument("--mse-weight", type=float, default=1.0)
-    parser.add_argument("--hidden-dim", type=int, default=128)
-    parser.add_argument("--num-heads", type=int, default=8)
+    parser.add_argument("--hidden-dim", type=int, default=64)
+    parser.add_argument("--num-heads", type=int, default=4)
     parser.add_argument("--dropout", type=float, default=0.3)
+    parser.add_argument("--in-features", type=int, default=12,
+                        help="Number of input features per stock per timestep.")
     parser.add_argument("--fold", type=int, default=None,
                         help="Run only this fold (0-based index). Default: all folds.")
     parser.add_argument("--eval-only", action="store_true",
@@ -166,6 +168,7 @@ def train_fold(fold: Fold, args: argparse.Namespace) -> Path:
         "--hidden-dim",       str(args.hidden_dim),
         "--num-heads",        str(args.num_heads),
         "--dropout",          str(args.dropout),
+        "--in-features",      str(args.in_features),
     ]
     print(f"\n  Command: {' '.join(cmd)}")
     before = set(MODEL_DIR.glob("*_icrank_best.dat"))
@@ -216,8 +219,9 @@ def evaluate_fold(fold: Fold, checkpoint_path: Path, device: torch.device) -> di
     )
 
     model = StockHeteGAT(
-        hidden_dim=int(cfg.get("hidden_dim", 128)),
-        num_heads=int(cfg.get("num_heads", 8)),
+        in_features=int(cfg.get("in_features", 12)),
+        hidden_dim=int(cfg.get("hidden_dim", 64)),
+        num_heads=int(cfg.get("num_heads", 4)),
         num_layers=int(cfg.get("num_layers", 1)),
         out_features=int(cfg.get("out_features", 32)),
         predictor_out_dim=state_dict["predictor.0.weight"].shape[0],
