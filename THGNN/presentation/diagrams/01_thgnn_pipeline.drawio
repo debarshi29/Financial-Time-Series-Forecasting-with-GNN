@@ -1,0 +1,198 @@
+<mxfile host="app.diagrams.net" version="21.6.5">
+  <diagram id="thgnn-pipeline" name="THGNN End-to-End Pipeline">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="600" math="1" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ══════════════════════════════════════════════
+             STAGE HEADER BANDS (background rectangles)
+        ══════════════════════════════════════════════ -->
+        <mxCell id="band1" value="" style="rounded=0;fillColor=#EBF5FB;strokeColor=#AED6F1;opacity=40;" vertex="1" parent="1">
+          <mxGeometry x="30" y="60" width="230" height="300" as="geometry"/>
+        </mxCell>
+        <mxCell id="band2" value="" style="rounded=0;fillColor=#EAF7EA;strokeColor=#A9DFBF;opacity=40;" vertex="1" parent="1">
+          <mxGeometry x="270" y="60" width="150" height="300" as="geometry"/>
+        </mxCell>
+        <mxCell id="band3" value="" style="rounded=0;fillColor=#FEF9E7;strokeColor=#FAD7A0;opacity=40;" vertex="1" parent="1">
+          <mxGeometry x="430" y="60" width="330" height="300" as="geometry"/>
+        </mxCell>
+        <mxCell id="band4" value="" style="rounded=0;fillColor=#F4ECF7;strokeColor=#C39BD3;opacity=40;" vertex="1" parent="1">
+          <mxGeometry x="770" y="60" width="160" height="300" as="geometry"/>
+        </mxCell>
+        <mxCell id="band5" value="" style="rounded=0;fillColor=#EAFAF1;strokeColor=#A9DFBF;opacity=40;" vertex="1" parent="1">
+          <mxGeometry x="940" y="60" width="220" height="300" as="geometry"/>
+        </mxCell>
+
+        <!-- Stage labels -->
+        <mxCell id="sl1" value="(1) Normalisation" style="text;html=1;align=center;fontStyle=1;fontSize=11;fontColor=#1B4F72;" vertex="1" parent="1">
+          <mxGeometry x="30" y="65" width="230" height="25" as="geometry"/>
+        </mxCell>
+        <mxCell id="sl2" value="(2) Temporal" style="text;html=1;align=center;fontStyle=1;fontSize=11;fontColor=#1B4F72;" vertex="1" parent="1">
+          <mxGeometry x="270" y="65" width="150" height="25" as="geometry"/>
+        </mxCell>
+        <mxCell id="sl3" value="(3) Spatial (Heterogeneous GAT)" style="text;html=1;align=center;fontStyle=1;fontSize=11;fontColor=#1B4F72;" vertex="1" parent="1">
+          <mxGeometry x="430" y="65" width="330" height="25" as="geometry"/>
+        </mxCell>
+        <mxCell id="sl4" value="(4) Semantic" style="text;html=1;align=center;fontStyle=1;fontSize=11;fontColor=#1B4F72;" vertex="1" parent="1">
+          <mxGeometry x="770" y="65" width="160" height="25" as="geometry"/>
+        </mxCell>
+        <mxCell id="sl5" value="(5) Output" style="text;html=1;align=center;fontStyle=1;fontSize=11;fontColor=#1B4F72;" vertex="1" parent="1">
+          <mxGeometry x="940" y="65" width="220" height="25" as="geometry"/>
+        </mxCell>
+
+        <!-- ══════════════════════════════════════════════
+             MAIN NODE BLOCKS (centre row y=200)
+        ══════════════════════════════════════════════ -->
+
+        <!-- Input Block -->
+        <mxCell id="n_input" value="&lt;b&gt;Input&lt;/b&gt;&lt;br/&gt;X : (N, 20, 12)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1B4F72;fontColor=#FFFFFF;strokeColor=#1B4F72;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="50" y="195" width="110" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- LayerNorm Block -->
+        <mxCell id="n_norm" value="&lt;b&gt;LayerNorm&lt;/b&gt;&lt;br/&gt;+ CS Demean" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D6EAF8;strokeColor=#2E86C1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="180" y="195" width="110" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- GRU Block -->
+        <mxCell id="n_gru" value="&lt;b&gt;GRU&lt;/b&gt;&lt;br/&gt;h&#x209C; : (N, 128)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5F5E3;strokeColor=#1E8449;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="290" y="195" width="110" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- Pos-GAT Block -->
+        <mxCell id="n_posgat" value="&lt;b&gt;Pos-GAT&lt;/b&gt;&lt;br/&gt;&#x3C1; &gt; &#x3B8;  |  8 heads" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5F5E3;strokeColor=#1E8449;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="450" y="120" width="130" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- Self MLP Block -->
+        <mxCell id="n_selfmlp" value="&lt;b&gt;Self MLP&lt;/b&gt;&lt;br/&gt;Linear projection" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EBF5FB;strokeColor=#2E86C1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="450" y="210" width="130" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- Neg-GAT Block -->
+        <mxCell id="n_neggat" value="&lt;b&gt;Neg-GAT&lt;/b&gt;&lt;br/&gt;&#x3C1; &lt; -&#x3B8;  |  8 heads" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FADBD8;strokeColor=#C0392B;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="450" y="300" width="130" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- MLP Projections (intermediate) -->
+        <mxCell id="n_mlppos" value="MLP proj&lt;br/&gt;256 → 128" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5F5E3;strokeColor=#1E8449;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="610" y="120" width="100" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="n_mlpself" value="MLP proj&lt;br/&gt;128 → 128" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EBF5FB;strokeColor=#2E86C1;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="610" y="215" width="100" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="n_mlpneg" value="MLP proj&lt;br/&gt;256 → 128" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FADBD8;strokeColor=#C0392B;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="610" y="310" width="100" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- Semantic Attention Block -->
+        <mxCell id="n_semat" value="&lt;b&gt;Semantic&lt;br/&gt;Attention&lt;/b&gt;&lt;br/&gt;3-way softmax" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F9E79F;strokeColor=#F39C12;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="790" y="185" width="120" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- PairNorm Block -->
+        <mxCell id="n_pn" value="&lt;b&gt;PairNorm&lt;/b&gt;&lt;br/&gt;PN-SI mode" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EBF5FB;strokeColor=#2E86C1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="960" y="195" width="110" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- Linear Output Block -->
+        <mxCell id="n_out" value="&lt;b&gt;Linear&lt;/b&gt;&lt;br/&gt;(N, 1)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1B4F72;fontColor=#FFFFFF;strokeColor=#1B4F72;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="195" width="110" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- ══════════════════════════════════════════════
+             ADJACENCY LABELS
+        ══════════════════════════════════════════════ -->
+        <mxCell id="lbl_posadj" value="pos_adj (&#x3C1;&gt;0.3)" style="text;html=1;align=center;fontSize=10;fontColor=#1E8449;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="430" y="93" width="170" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="lbl_negadj" value="neg_adj (&#x3C1;&lt;-0.3)" style="text;html=1;align=center;fontSize=10;fontColor=#C0392B;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="430" y="367" width="170" height="20" as="geometry"/>
+        </mxCell>
+
+        <!-- ══════════════════════════════════════════════
+             EDGES (ARROWS)
+        ══════════════════════════════════════════════ -->
+
+        <!-- Input → LayerNorm -->
+        <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#2E86C1;strokeWidth=2;" edge="1" source="n_input" target="n_norm" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- LayerNorm → GRU -->
+        <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#2E86C1;strokeWidth=2;" edge="1" source="n_norm" target="n_gru" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- GRU → Pos-GAT -->
+        <mxCell id="e3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#1E8449;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="n_gru" target="n_posgat" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- GRU → Self MLP -->
+        <mxCell id="e4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#2E86C1;strokeWidth=2;" edge="1" source="n_gru" target="n_selfmlp" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- GRU → Neg-GAT -->
+        <mxCell id="e5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#C0392B;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="n_gru" target="n_neggat" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Pos-GAT → MLP proj pos -->
+        <mxCell id="e6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#1E8449;strokeWidth=2;" edge="1" source="n_posgat" target="n_mlppos" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <!-- Self MLP → MLP proj self -->
+        <mxCell id="e7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#2E86C1;strokeWidth=2;" edge="1" source="n_selfmlp" target="n_mlpself" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <!-- Neg-GAT → MLP proj neg -->
+        <mxCell id="e8" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#C0392B;strokeWidth=2;" edge="1" source="n_neggat" target="n_mlpneg" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- MLP proj pos → Semantic Attn -->
+        <mxCell id="e9" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#1E8449;strokeWidth=2;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" edge="1" source="n_mlppos" target="n_semat" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <!-- MLP proj self → Semantic Attn -->
+        <mxCell id="e10" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#2E86C1;strokeWidth=2;" edge="1" source="n_mlpself" target="n_semat" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <!-- MLP proj neg → Semantic Attn -->
+        <mxCell id="e11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#C0392B;strokeWidth=2;entryX=0;entryY=0.7;entryDx=0;entryDy=0;" edge="1" source="n_mlpneg" target="n_semat" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Semantic Attn → PairNorm -->
+        <mxCell id="e12" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#2E86C1;strokeWidth=2;" edge="1" source="n_semat" target="n_pn" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- PairNorm → Output -->
+        <mxCell id="e13" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#2E86C1;strokeWidth=2;" edge="1" source="n_pn" target="n_out" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ══════════════════════════════════════════════
+             ANNOTATION: differences from original paper
+        ══════════════════════════════════════════════ -->
+        <mxCell id="ann1" value="&#x2605; Added vs paper" style="text;html=1;align=left;fontSize=10;fontColor=#C0392B;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="50" y="430" width="150" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="ann2" value="CS Demean &#x2605;" style="text;html=1;align=center;fontSize=9;fontColor=#C0392B;" vertex="1" parent="1">
+          <mxGeometry x="175" y="265" width="115" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="ann3" value="MLP projections &#x2605;" style="text;html=1;align=center;fontSize=9;fontColor=#C0392B;" vertex="1" parent="1">
+          <mxGeometry x="600" y="175" width="115" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="ann4" value="PairNorm &#x2605;" style="text;html=1;align=center;fontSize=9;fontColor=#C0392B;" vertex="1" parent="1">
+          <mxGeometry x="955" y="265" width="115" height="20" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

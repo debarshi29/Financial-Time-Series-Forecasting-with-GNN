@@ -1,0 +1,95 @@
+<mxfile host="app.diagrams.net" version="21.6.5">
+  <diagram id="data-pipeline" name="Three-Stage Data Pipeline">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ══ Stage 1 header ══ -->
+        <mxCell id="s1h" value="Stage 1: Market Data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1B4F72;fontColor=#FFFFFF;strokeColor=#1B4F72;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="80" y="80" width="220" height="55" as="geometry"/>
+        </mxCell>
+        <!-- Stage 1 artifact -->
+        <mxCell id="s1a" value="&lt;b&gt;data/nifty50.pkl&lt;/b&gt;&lt;br/&gt;OHLCV + pct-change labels&lt;br/&gt;(50 stocks, 2015-2026)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EBF5FB;strokeColor=#2E86C1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="195" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <!-- Stage 1 script label -->
+        <mxCell id="s1l" value="download_market_data.py&lt;br/&gt;Yahoo Finance API" style="text;html=1;align=center;fontSize=10;fontColor=#7F8C8D;" vertex="1" parent="1">
+          <mxGeometry x="80" y="150" width="220" height="38" as="geometry"/>
+        </mxCell>
+
+        <!-- Source: Yahoo Finance -->
+        <mxCell id="yahoo" value="Yahoo Finance" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#F9E79F;strokeColor=#F39C12;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="130" y="30" width="120" height="45" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_yahoo" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#F39C12;strokeWidth=2;" edge="1" source="yahoo" target="s1a" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ══ Stage 2 header ══ -->
+        <mxCell id="s2h" value="Stage 2: Graph Relations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1B4F72;fontColor=#FFFFFF;strokeColor=#1B4F72;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="390" y="80" width="220" height="55" as="geometry"/>
+        </mxCell>
+        <!-- Stage 2 artifact -->
+        <mxCell id="s2a" value="&lt;b&gt;data/relation/YYYY-MM-DD.csv&lt;/b&gt;&lt;br/&gt;Pearson correlation matrices&lt;br/&gt;(50×50, per trading day)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EBF5FB;strokeColor=#2E86C1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="390" y="195" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <!-- Stage 2 script label -->
+        <mxCell id="s2l" value="generate_relation.py&lt;br/&gt;Pearson ρ over 20-day window" style="text;html=1;align=center;fontSize=10;fontColor=#7F8C8D;" vertex="1" parent="1">
+          <mxGeometry x="390" y="150" width="220" height="38" as="geometry"/>
+        </mxCell>
+
+        <!-- ══ Stage 3 header ══ -->
+        <mxCell id="s3h" value="Stage 3: Graph Samples" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1B4F72;fontColor=#FFFFFF;strokeColor=#1B4F72;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="700" y="80" width="220" height="55" as="geometry"/>
+        </mxCell>
+        <!-- Stage 3 artifact -->
+        <mxCell id="s3a" value="&lt;b&gt;data/data_train_predict/&lt;/b&gt;&lt;br/&gt;Features (50,20,6) + pos_adj + neg_adj&lt;br/&gt;+ labels (50,3) per trading day" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EBF5FB;strokeColor=#2E86C1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="700" y="195" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <!-- Stage 3 script label -->
+        <mxCell id="s3l" value="generate_data.py&lt;br/&gt;threshold θ = 0.3" style="text;html=1;align=center;fontSize=10;fontColor=#7F8C8D;" vertex="1" parent="1">
+          <mxGeometry x="700" y="150" width="220" height="38" as="geometry"/>
+        </mxCell>
+
+        <!-- ══ Arrows between stages ══ -->
+        <mxCell id="e12" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2E86C1;strokeWidth=2;" edge="1" source="s1a" target="s2a" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e23" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2E86C1;strokeWidth=2;" edge="1" source="s2a" target="s3a" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Direct features arrow Stage1 → Stage3 (curved below) -->
+        <mxCell id="e13_feat" value="features" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#7F8C8D;strokeWidth=1.5;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" source="s1a" target="s3a" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="190" y="330"/>
+              <mxPoint x="810" y="330"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ══ Bottom details ══ -->
+        <mxCell id="d1" value="Features: open, high, low, close,&lt;br/&gt;volume, turnover — all % change" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5F5E3;strokeColor=#1E8449;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="360" width="220" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="d2" value="Avg of 6 feature correlations:&lt;br/&gt;ρ_ij = (1/6) Σ Pearson(x_i^f, x_j^f)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5F5E3;strokeColor=#1E8449;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="390" y="360" width="220" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="d3" value="A⁺_ij = 1[ρ &gt; 0.3]&lt;br/&gt;A⁻_ij = 1[ρ &lt; -0.3]&lt;br/&gt;Graph rebuilt every trading day" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5F5E3;strokeColor=#1E8449;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="700" y="360" width="220" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- ══ Model block ══ -->
+        <mxCell id="model" value="THGNN Model&lt;br/&gt;(train_ic_ranked.py)" style="shape=mxgraph.flowchart.process;whiteSpace=wrap;html=1;fillColor=#1B4F72;fontColor=#FFFFFF;strokeColor=#1B4F72;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="960" y="195" width="180" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_model" value="" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2E86C1;strokeWidth=2;" edge="1" source="s3a" target="model" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

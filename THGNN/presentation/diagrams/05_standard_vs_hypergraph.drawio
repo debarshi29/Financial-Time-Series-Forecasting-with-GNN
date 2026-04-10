@@ -1,0 +1,101 @@
+<mxfile host="app.diagrams.net" version="21.6.5">
+  <diagram id="hyper-compare" name="Standard Graph vs Hypergraph">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="550" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="Standard Pairwise Graph (THGNN) vs Hypergraph (MaGNet / STHAN-SR)" style="text;html=1;align=center;fontSize=13;fontStyle=1;fontColor=#1B4F72;" vertex="1" parent="1">
+          <mxGeometry x="50" y="20" width="900" height="30" as="geometry"/>
+        </mxCell>
+
+        <!-- ══ LEFT: Standard Graph ══ -->
+        <mxCell id="std_title" value="Standard Pairwise Graph (THGNN)" style="text;html=1;align=center;fontSize=12;fontStyle=1;fontColor=#2E86C1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="60" width="380" height="25" as="geometry"/>
+        </mxCell>
+
+        <!-- 4 nodes -->
+        <mxCell id="nA" value="A" style="ellipse;whiteSpace=wrap;html=1;fillColor=#EBF5FB;strokeColor=#2E86C1;fontSize=13;fontStyle=1;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="130" y="130" width="70" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="nB" value="B" style="ellipse;whiteSpace=wrap;html=1;fillColor=#EBF5FB;strokeColor=#2E86C1;fontSize=13;fontStyle=1;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="270" y="130" width="70" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="nC" value="C" style="ellipse;whiteSpace=wrap;html=1;fillColor=#EBF5FB;strokeColor=#2E86C1;fontSize=13;fontStyle=1;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="200" y="250" width="70" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="nD" value="D" style="ellipse;whiteSpace=wrap;html=1;fillColor=#EBF5FB;strokeColor=#2E86C1;fontSize=13;fontStyle=1;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="340" y="250" width="70" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- Pairwise edges -->
+        <mxCell id="eAB" value="" style="endArrow=none;strokeColor=#2E86C1;strokeWidth=2;" edge="1" source="nA" target="nB" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="eBC" value="" style="endArrow=none;strokeColor=#2E86C1;strokeWidth=2;" edge="1" source="nB" target="nC" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="eAC" value="" style="endArrow=none;strokeColor=#2E86C1;strokeWidth=2;" edge="1" source="nA" target="nC" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="eCD" value="" style="endArrow=none;strokeColor=#2E86C1;strokeWidth=2;" edge="1" source="nC" target="nD" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Standard graph caption -->
+        <mxCell id="std_cap" value="Each edge e = (u, v) connects exactly 2 nodes.&lt;br/&gt;Group shocks must be decomposed into O(n²) pairwise edges.&lt;br/&gt;&lt;font color=&quot;#C0392B&quot;&gt;✗ Loses higher-order structure&lt;/font&gt;" style="text;html=1;align=center;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="350" width="380" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- Divider -->
+        <mxCell id="divider" value="" style="endArrow=none;strokeColor=#7F8C8D;strokeWidth=1;dashed=1;" edge="1" parent="1">
+          <mxGeometry x="500" y="60" width="10" height="380" as="geometry">
+            <mxPoint x="500" y="60" as="sourcePoint"/>
+            <mxPoint x="500" y="440" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ══ RIGHT: Hypergraph ══ -->
+        <mxCell id="hyp_title" value="Hypergraph (MaGNet / STHAN-SR)" style="text;html=1;align=center;fontSize=12;fontStyle=1;fontColor=#1E8449;" vertex="1" parent="1">
+          <mxGeometry x="530" y="60" width="420" height="25" as="geometry"/>
+        </mxCell>
+
+        <!-- 4 nodes -->
+        <mxCell id="nE" value="E" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5F5E3;strokeColor=#1E8449;fontSize=13;fontStyle=1;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="590" y="130" width="70" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="nF" value="F" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5F5E3;strokeColor=#1E8449;fontSize=13;fontStyle=1;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="720" y="130" width="70" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="nG" value="G" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5F5E3;strokeColor=#1E8449;fontSize=13;fontStyle=1;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="850" y="130" width="70" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="nH" value="H" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FEF9E7;strokeColor=#F39C12;fontSize=13;fontStyle=1;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="785" y="270" width="70" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- Hyperedge 1: {E,F,G} sector A (green ellipse) -->
+        <mxCell id="he1" value="sector A" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5F5E3;strokeColor=#1E8449;opacity=40;fontSize=10;fontColor=#1E8449;" vertex="1" parent="1">
+          <mxGeometry x="565" y="105" width="385" height="120" as="geometry"/>
+        </mxCell>
+
+        <!-- Hyperedge 2: {F,G,H} sector B (gold ellipse) -->
+        <mxCell id="he2" value="sector B" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FEF9E7;strokeColor=#F39C12;opacity=40;fontSize=10;fontColor=#F39C12;" vertex="1" parent="1">
+          <mxGeometry x="695" y="140" width="250" height="230" as="geometry"/>
+        </mxCell>
+
+        <!-- Hypergraph caption -->
+        <mxCell id="hyp_cap" value="Hyperedge e ⊆ V connects any subset of nodes.&lt;br/&gt;Single hyperedge represents an entire sector shock.&lt;br/&gt;Stocks have soft membership across overlapping themes.&lt;br/&gt;&lt;font color=&quot;#1E8449&quot;&gt;✓ Preserves higher-order market structure&lt;/font&gt;" style="text;html=1;align=center;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="530" y="360" width="420" height="75" as="geometry"/>
+        </mxCell>
+
+        <!-- Note about node overlap ordering -->
+        <mxCell id="zorder_note" value="Note: hyperedge ellipses are drawn behind the stock nodes in the actual diagram." style="text;html=1;align=center;fontSize=9;fontColor=#7F8C8D;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="530" y="440" width="420" height="20" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -244,28 +244,37 @@ Baseline MSE training can collapse to near-mean predictions (low dispersion).
 
 For masked predictions `pred` and targets `target` (N stocks, one trading day):
 
-- `mse = MSE(pred, target)`
+- `mse = MSE(pred, target) / return_scale²`  — fixed-scale normalized MSE
 - `corr = SoftSpearman(pred, target)` — differentiable cross-sectional rank IC (see below)
 - `ic_loss = 1 - corr`
-- `pred_std = std(pred)`  — cross-sectional std of predictions for that day
-- `target_std = std(target)`
-- `dispersion_penalty = ReLU(min_dispersion_ratio * target_std - pred_std)`
+- `pred_std = std(pred)` — cross-sectional std of predictions for that day
+- `target_std = max(std(target), return_scale × 0.1)` — cross-sectional std of targets, floored to prevent ratio explosion on low-dispersion days (when all stocks move in lockstep)
+- `spread_ratio = pred_std / target_std` — dimensionless spread ratio
+- `dispersion_penalty = ReLU(min_dispersion_ratio − spread_ratio) + ReLU(spread_ratio − max_dispersion_ratio)`
 
 Final objective:
 
 `loss = mse_weight * mse + ic_weight * ic_loss + dispersion_weight * dispersion_penalty`
+
+**MSE normalization rationale:** Raw MSE on decimal daily returns has magnitude ~(0.01)² = 1e-4, whereas the IC loss is O(1). Without normalization, the MSE gradient is ~3500× smaller than the IC gradient, making the MSE term effectively dead. Dividing by the fixed constant `return_scale² = (0.01)² = 1e-4` brings MSE to O(1), so `mse_weight` and `ic_weight` have their intended relative effect. A fixed constant is used rather than per-batch `target_var`, which varied too much across days and between splits (causing val/test loss to spike on low-volatility days).
+
+**Dispersion penalty rationale:** The previous raw-std form (`ReLU(min_std - pred_std)`) had magnitude O(0.01), making it negligible against O(1) MSE/IC terms. The dimensionless ratio form is O(1) and also penalizes *over-spreading* (`spread_ratio > max_dispersion_ratio`), preventing the model from over-amplifying prediction variance. The ratio gradient is proportional to `1/pred_std`, which becomes stronger as predictions collapse toward zero — exactly when correction is most needed.
 
 ### Soft Spearman IC
 
 The IC term uses a **differentiable soft-rank Spearman correlation** rather than raw Pearson:
 
 1. For each stock `i`, compute its soft rank:
-   `rank_i = Σ_j sigmoid((pred_i − pred_j) / τ)`, where `τ = 0.01`
+   `rank_i = Σ_j sigmoid((pred_i − pred_j) / τ)`
 2. Compute Pearson correlation between soft ranks of predictions and (detached) soft ranks of targets.
+
+The temperature `τ` is **annealed** during training: `τ = max(0.02, 0.2 × 0.95^epoch)`, starting at ~0.19 (smooth gradients when predictions are far from correct) and decaying to 0.02 by epoch 60 (sharper rank signal near convergence). A fixed small τ risks vanishing gradients when predictions are clustered near zero.
 
 This equals the Spearman rank correlation in the limit τ → 0 and is fully differentiable via autograd. It is more robust than Pearson IC, which can be dominated by a single stock with an extreme return magnitude. Target ranks are detached from the computation graph — gradients flow only through prediction ranks.
 
-**Note:** The IC value reported during training (logged as `ic`) reflects this soft Spearman approximation. Post-hoc evaluation scripts (`plot_date_range.py`, `plot_top_5_stocks_icrank.py`) compute true Spearman IC via `pandas.Series.corr(method="spearman")`; the two will be close but not identical due to the soft-rank approximation.
+**IC warmup:** The IC weight is ramped linearly from 0 to `ic_weight` over the first `ic_warmup_epochs` (default 10) epochs. This allows MSE to stabilize before ranking pressure is introduced. Critically, all three splits (train, val, test) use the same ramped weight at each epoch so loss curves are directly comparable. Previously, val/test used the full IC weight while train used the ramped weight, creating a visible discontinuity in the loss plot.
+
+**Note:** The IC value reported during training (logged as `ic`) reflects the soft Spearman approximation. The `rank_ic` metric uses exact non-differentiable Spearman ranks and is used for checkpoint selection. Post-hoc evaluation scripts compute true Spearman IC via `pandas.Series.corr(method="spearman")`.
 
 ## 8.3 Default Hyperparameters
 
@@ -277,19 +286,22 @@ This equals the Spearman rank correlation in the limit τ → 0 and is fully dif
   - test start: `2025-01-01`
   - test end: `2026-02-28`
 - model:
-  - `hidden_dim=128`, `num_heads=8`, `num_layers=1`, `out_features=32`
+  - `hidden_dim=64`, `num_heads=4`, `num_layers=1`, `out_features=32`, `in_features=12`
 - optimizer:
-  - `AdamW(lr=1e-4, weight_decay=1e-3)`
-  - `CosineAnnealingLR(T_max=epochs)`
+  - `AdamW(lr=1e-4, weight_decay=1e-4)`
+  - LR schedule: 5-epoch linear warmup (0.1× → 1× LR), then `CosineAnnealingLR(T_max=epochs-5)`
 - loss weights:
   - `mse_weight=1.0`
   - `ic_weight=0.35`
   - `dispersion_weight=0.2`
   - `min_dispersion_ratio=0.2`
-- IC objective: soft Spearman rank correlation (temperature τ=0.01)
+  - `max_dispersion_ratio=2.0`
+  - `return_scale=0.01` (decimal returns; adjust to `1.0` for percentage-point returns)
+- IC objective: soft Spearman rank correlation with annealed temperature `τ = max(0.02, 0.2 × 0.95^epoch)`
+- IC warmup: weight ramped from 0 → `ic_weight` over first `ic_warmup_epochs=10` epochs
 - training:
   - `epochs=60`
-  - early stop patience `15`
+  - early stop patience `20`
   - seed `42`
 
 ## 8.4 Model Selection
@@ -344,12 +356,13 @@ Checkpoint includes:
 
 ## 10.2 Why Low MSE May Be Misleading
 
-- Targets are decimal returns with small magnitude.
-- Small MSE can occur with weak directional skill.
+- Targets are decimal returns with small magnitude (~0.01 std).
+- The normalized MSE reported in `train_ic_ranked.py` is `MSE / return_scale²` (not raw MSE). A value of 1.0 means the model predicts no better than the cross-sectional mean. Values < 1.0 indicate genuine predictive accuracy.
+- Raw MSE ≈ normalized_MSE × (0.01)² — small raw values do not imply strong directional skill.
 - Must report:
   - IC (cross-sectional and/or per-stock)
-  - sign accuracy
-  - prediction dispersion ratio
+  - sign/directional accuracy
+  - prediction spread ratio (`pred_std / target_std`)
   - portfolio spread metrics
 
 ## 10.3 Calibration vs Ranking Tradeoff

@@ -100,9 +100,13 @@ graph LR
 This is the recommended entry point for all training.
 
 *   **Date-Based Splits**: Specify `--train-start-date`, `--train-end-date`, etc. — indices are resolved automatically. No hard ceiling on training dates.
-*   **Composite Loss**: MSE + soft Spearman IC loss (1 − rank correlation) + dispersion penalty. IC uses differentiable soft ranks, robust to outlier returns.
-*   **Automatic Visualization**: Saves a loss curve to `data/plots/<pre_data>_icrank_loss_curve.png` after training.
-*   **Early Stopping**: Stops after `--patience` epochs without validation IC improvement (default 15).
+*   **Composite Loss**: Three terms, all O(1) in scale:
+    1. `MSE / return_scale²` — normalized prediction error (`--return-scale 0.01` for decimal returns).
+    2. `1 − soft Spearman IC` — cross-sectional ranking loss via differentiable soft ranks. Temperature anneals from 0.19 → 0.02 over training for stable gradients.
+    3. Dimensionless spread-ratio penalty — penalizes both under-spreading (`pred_std < r_min × target_std`) and over-spreading (`pred_std > r_max × target_std`).
+*   **IC Warmup**: IC weight ramps from 0 to `--ic-weight` over the first `--ic-warmup-epochs` (default 10) so MSE fits before ranking pressure is added. All three splits use the same ramped weight each epoch.
+*   **Automatic Visualization**: Saves a loss curve to `data/plots/<pre_data>_icrank_loss_curve.png` after training. All three curves use the same loss objective per epoch, so overfitting/underfitting is directly visible.
+*   **Early Stopping**: Stops after `--patience` epochs without validation rank IC improvement (default 20). Checkpoint is selected on exact Spearman IC, not composite loss.
 
 ### `model/Thgnn_flexible.py` vs `Thgnn.py`
 *   **Standard (`Thgnn.py`)**: Has hardcoded input dimensions (often `in_features=6`). If your data has 7 columns (e.g., you added Moving Averages), it crashes.

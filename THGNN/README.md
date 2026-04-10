@@ -322,18 +322,30 @@ This is the primary training script. It implements a composite loss that directl
 The total loss per training step is:
 
 ```
-L = w_mse * MSE  +  w_ic * (1 - IC)  +  w_disp * max(0, sigma_min - sigma_pred)
+L = w_mse * (MSE / return_scale²)
+  + w_ic  * (1 - IC)
+  + w_disp * (ReLU(r_min - spread) + ReLU(spread - r_max))
 ```
+
+where `spread = pred_std / target_std` is the dimensionless cross-sectional spread ratio.
 
 | Term | Weight arg | Default | Purpose |
 |------|-----------|---------|---------|
-| `MSE` | `--mse-weight` | `1.0` | Penalizes absolute prediction error |
+| `MSE / return_scale²` | `--mse-weight` | `1.0` | Normalized prediction error, O(1) at baseline |
 | `1 - IC` | `--ic-weight` | `0.35` | Maximizes cross-sectional Spearman rank correlation |
-| Dispersion penalty | `--dispersion-weight` | `0.2` | Prevents prediction collapse to near-zero variance |
+| Dispersion penalty | `--dispersion-weight` | `0.2` | Keeps spread ratio within `[r_min, r_max]` |
 
-**IC (Information Coefficient)** is the cross-sectional **Spearman rank correlation** between predicted and actual returns across all N stocks on a single day. The training objective uses a **differentiable soft-rank approximation**: each stock's soft rank is computed via pairwise sigmoid comparisons (`rank_i ≈ Σ_j sigmoid((pred_i − pred_j) / τ)`, τ = 0.01), making the Spearman IC fully differentiable. This is more robust than raw Pearson IC, which can be dominated by a single outlier stock with an extreme return on a given day. An IC of 0.05 is considered practically useful; IC > 0.10 is strong.
+**MSE normalization:** Raw MSE on decimal daily returns (~0.01 scale) is ~0.0001, which is ~3500× smaller than the IC loss term. Dividing by `return_scale²` (default `0.01² = 1e-4`) brings MSE to O(1), so `--mse-weight` and `--ic-weight` have their intended relative effect. Using a fixed constant rather than per-batch `target_var` also prevents val/test loss from spiking on low-volatility days where the cross-sectional dispersion of returns is atypically small.
 
-**Dispersion penalty** fires when the standard deviation of predictions falls below `--min-dispersion-ratio` (default 0.2) times the target standard deviation. This prevents the degenerate solution where the model predicts the same value for all stocks.
+**IC (Information Coefficient)** is the cross-sectional **Spearman rank correlation** between predicted and actual returns across all N stocks on a single day. The training objective uses a **differentiable soft-rank approximation**: each stock's soft rank is computed via pairwise sigmoid comparisons (`rank_i ≈ Σ_j sigmoid((pred_i − pred_j) / τ)`). The temperature `τ` is annealed from 0.19 at epoch 1 to 0.02 at epoch 60 (`τ = max(0.02, 0.2 × 0.95^epoch)`), giving smooth gradients early in training and sharper rank signal near convergence. This is more robust than raw Pearson IC, which can be dominated by a single outlier stock. An IC of 0.05 is considered practically useful; IC > 0.10 is strong.
+
+**Dispersion penalty** is a dimensionless ratio penalty that fires in two directions:
+- `ReLU(r_min − spread)` penalizes *under-spreading* (collapse to near-constant predictions).
+- `ReLU(spread − r_max)` penalizes *over-spreading* (predictions more volatile than targets).
+
+Both terms are O(1) — unlike the previous raw-std form, which was O(0.01) and therefore negligible against the MSE/IC terms. The ratio form also produces a stronger gradient the closer `pred_std` is to zero, where correction is most needed.
+
+**IC warmup:** The IC weight is ramped from 0 → `--ic-weight` over `--ic-warmup-epochs` (default 10) to allow MSE fitting to stabilize before ranking pressure is applied. All three splits (train, val, test) use the same ramped weight at each epoch, so the loss curves are directly comparable.
 
 **Directional accuracy** is tracked as a monitoring metric only — it is not part of the loss. It is computed inside `torch.no_grad()` and reported in the progress bar.
 
@@ -356,7 +368,7 @@ Training on multiple horizons simultaneously was found to hurt IC because h0 and
 | Optimizer | AdamW |
 | Learning rate | `1e-4` |
 | Weight decay | `1e-3` |
-| LR schedule | CosineAnnealingLR over total epochs |
+| LR schedule | 5-epoch linear warmup (0.1× → 1× LR), then CosineAnnealingLR |
 | Gradient clipping | `max_norm=1.0` |
 | Dropout | `0.3` (applied after GRU and each MLP) |
 
@@ -486,12 +498,15 @@ python rebuild_graph_data.py --threshold 0.3
 | `--num-heads` | `8` | Number of attention heads per GAT |
 | `--num-layers` | `1` | Number of GRU layers |
 | `--out-features` | `32` | Per-head output features in GAT |
-| `--mse-weight` | `1.0` | Weight on MSE term in composite loss |
+| `--mse-weight` | `1.0` | Weight on normalized MSE term |
 | `--ic-weight` | `0.35` | Weight on IC loss term (1 − soft Spearman rank corr) |
-| `--dispersion-weight` | `0.2` | Weight on dispersion penalty |
-| `--min-dispersion-ratio` | `0.2` | Minimum pred_std / target_std before penalty fires |
+| `--dispersion-weight` | `0.2` | Weight on dispersion spread-ratio penalty |
+| `--min-dispersion-ratio` | `0.2` | Lower bound on pred_std/target_std ratio before penalty fires |
+| `--max-dispersion-ratio` | `2.0` | Upper bound on pred_std/target_std ratio before penalty fires |
+| `--return-scale` | `0.01` | Fixed denominator for MSE normalization. Set to `0.01` for decimal returns (e.g. 0.015 = 1.5%), `1.0` for percentage-point returns |
+| `--ic-warmup-epochs` | `10` | Epochs over which IC weight ramps from 0 to `--ic-weight` |
 | `--target-horizon` | `0` | Label horizon index to train on (0=next-day) |
-| `--patience` | `15` | Early stopping patience (epochs without val IC improvement) |
+| `--patience` | `20` | Early stopping patience (epochs without val IC improvement) |
 | `--seed` | `42` | Random seed |
 
 ---

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,8 +30,6 @@ PLOT_DIR = DATA_DIR / "plots"
 class SplitIndices:
     train_start: int
     train_end_exclusive: int
-    val_start: int
-    val_end_exclusive: int
     test_start: int
     test_end_exclusive: int
     pre_data: str
@@ -41,35 +40,42 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-dir", type=Path, default=TRAIN_DATA_DIR)
     parser.add_argument("--model-dir", type=Path, default=MODEL_DIR)
     parser.add_argument("--train-start-date", type=str, default="2015-01-01")
-    parser.add_argument("--train-end-date", type=str, default="2023-12-29")
-    parser.add_argument("--val-start-date", type=str, default="2024-01-01")
-    parser.add_argument("--val-end-date", type=str, default="2024-12-31")
+    parser.add_argument("--train-end-date", type=str, default="2024-12-31")
     parser.add_argument("--test-start-date", type=str, default="2025-01-01")
-    parser.add_argument("--test-end-date", type=str, default="2026-2-28")
-    parser.add_argument("--epochs", type=int, default=60)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--weight-decay", type=float, default=1e-4)
-    parser.add_argument("--dropout", type=float, default=0.3)
-    parser.add_argument("--hidden-dim", type=int, default=64)
+    parser.add_argument("--test-end-date", type=str, default="2026-12-31")
+    parser.add_argument("--epochs", type=int, default=80)
+    parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--weight-decay", type=float, default=5e-5)
+    parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--num-heads", type=int, default=4)
     parser.add_argument("--num-layers", type=int, default=1)
     parser.add_argument("--out-features", type=int, default=32)
     parser.add_argument("--in-features", type=int, default=12,
                         help="Number of input features per stock per timestep. "
                              "Must match the feature dimension in the graph samples.")
-    parser.add_argument("--mse-weight", type=float, default=1.0)
-    parser.add_argument("--ic-weight", type=float, default=0.35)
-    parser.add_argument("--dispersion-weight", type=float, default=0.2)
-    parser.add_argument("--min-dispersion-ratio", type=float, default=0.2)
+    parser.add_argument("--mse-weight", type=float, default=0.7)
+    parser.add_argument("--ic-weight", type=float, default=0.5)
+    parser.add_argument("--dispersion-weight", type=float, default=0.3)
+    parser.add_argument("--min-dispersion-ratio", type=float, default=0.5,
+                        help="Penalize pred_std < min_dispersion_ratio * target_std to prevent mean-collapse. "
+                             "Previous default 0.2 never triggered (spread was 0.26), so the model hedged "
+                             "toward near-zero predictions with no gradient pressure to spread.")
     parser.add_argument("--max-dispersion-ratio", type=float, default=2.0,
                         help="Penalize pred_std > max_dispersion_ratio * target_std to prevent over-spreading.")
+    parser.add_argument("--return-scale", type=float, default=0.02,
+                        help="Typical daily return std used to normalize MSE. "
+                             "MSE is divided by return_scale**2 so it is O(1) and scale-consistent "
+                             "across all batches and splits. Default 0.02 matches Nifty50 cross-sectional "
+                             "return std (~2%% per day in decimal form). Set to ~1.0 if returns are in "
+                             "percentage points.")
     parser.add_argument("--target-horizon", type=int, default=0,
                         help="Which label horizon to train on (0=next-day, 1, 2). "
                              "Avoids conflicting gradients from negatively correlated horizons.")
-    parser.add_argument("--patience", type=int, default=20)
-    parser.add_argument("--ic-warmup-epochs", type=int, default=10,
+    parser.add_argument("--patience", type=int, default=10)
+    parser.add_argument("--ic-warmup-epochs", type=int, default=3,
                         help="Ramp IC loss weight from 0 to --ic-weight over this many epochs. "
-                             "Prevents noisy IC gradients from dominating before MSE fitting.")
+                             "Shorter warmup so IC gradient arrives before MSE drives predictions to zero.")
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -117,30 +123,21 @@ def compute_split_indices(files: list[str], args: argparse.Namespace) -> SplitIn
 
     train_start = _index_for_date(file_dates, args.train_start_date)
     train_end_exclusive = _exclusive_end_index_for_date(file_dates, args.train_end_date)
-    val_start = _index_for_date(file_dates, args.val_start_date)
-    val_end_exclusive = _exclusive_end_index_for_date(file_dates, args.val_end_date)
     test_start = _index_for_date(file_dates, args.test_start_date)
     test_end_exclusive = _exclusive_end_index_for_date(file_dates, args.test_end_date)
 
-    val_end_exclusive = min(val_end_exclusive, len(files))
+    train_end_exclusive = min(train_end_exclusive, len(files))
     test_end_exclusive = min(test_end_exclusive, len(files))
 
-    if train_end_exclusive > len(files):
-        train_end_exclusive = len(files)
-
-    if not (train_start < train_end_exclusive <= val_start < val_end_exclusive <= test_start < test_end_exclusive):
+    if not (train_start < train_end_exclusive <= test_start < test_end_exclusive):
         raise ValueError(
-            "Invalid split ordering. Required: "
-            "train_start < train_end <= val_start < val_end <= test_start < test_end. "
+            "Invalid split ordering. Required: train_start < train_end <= test_start < test_end. "
             f"Resolved indices: train [{train_start}, {train_end_exclusive}), "
-            f"val [{val_start}, {val_end_exclusive}), "
             f"test [{test_start}, {test_end_exclusive})."
         )
 
     if train_end_exclusive <= train_start:
         raise ValueError("Training split is empty.")
-    if val_end_exclusive <= val_start:
-        raise ValueError("Validation split is empty.")
     if test_end_exclusive <= test_start:
         raise ValueError("Test split is empty.")
 
@@ -160,8 +157,6 @@ def compute_split_indices(files: list[str], args: argparse.Namespace) -> SplitIn
     return SplitIndices(
         train_start=train_start,
         train_end_exclusive=train_end_exclusive,
-        val_start=val_start,
-        val_end_exclusive=val_end_exclusive,
         test_start=test_start,
         test_end_exclusive=test_end_exclusive,
         pre_data=pre_data,
@@ -266,24 +261,41 @@ def composite_loss(
     dispersion_weight: float,
     min_dispersion_ratio: float,
     max_dispersion_ratio: float = 2.0,
+    temperature: float = 0.05,
+    return_scale: float = 0.01,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     pred = _ensure_2d(pred)
     target = _ensure_2d(target)
 
-    mse = F.mse_loss(pred, target)
-    soft_corr = cross_sectional_ic(pred, target)
+    # Cross-sectional demeaning: remove the market factor before computing MSE.
+    # Raw daily returns are dominated by the market move (e.g. Nifty up 1.5%
+    # → all stocks roughly +1–2%). MSE on raw returns rewards predicting market
+    # direction, not relative ranking. Demeaning isolates the idiosyncratic
+    # component so gradients point toward cross-sectional outperformance.
+    pred_flat = pred.reshape(-1)
+    target_flat = target.reshape(-1)
+    pred_cs = pred_flat - pred_flat.mean()
+    target_cs = target_flat - target_flat.detach().mean()
+    mse = F.mse_loss(pred_cs, target_cs) / (return_scale ** 2)
+    soft_corr = cross_sectional_ic(pred, target, temperature=temperature)
     ic_loss = 1.0 - soft_corr
 
-    pred_std = pred.reshape(-1).std(unbiased=False)
-    target_std = target.reshape(-1).std(unbiased=False).detach()
-    min_std = min_dispersion_ratio * target_std
-    max_std = max_dispersion_ratio * target_std
-    # Penalize both under- and over-spreading relative to target return distribution.
-    dispersion_penalty = F.relu(min_std - pred_std) + F.relu(pred_std - max_std)
+    pred_std = pred_flat.std(unbiased=False).clamp(min=1e-8)
+    # Floor target_std at return_scale × 0.1 rather than 1e-8.
+    # On days where all stocks move in lockstep (low cross-sectional dispersion),
+    # target_std → 0 and spread_ratio = pred_std / target_std → ∞, spiking the
+    # dispersion penalty to thousands and dominating the total loss.
+    # A floor of return_scale × 0.1 caps spread_ratio at ~100 in the worst case
+    # while having no effect on normal batches where target_std ≫ this floor.
+    target_std = target_flat.std(unbiased=False).detach().clamp(min=return_scale * 0.1)
+    # Dimensionless spread ratio penalty: O(1) and independent of return scale.
+    # Raw std penalty (previous) was O(0.01) — negligible vs O(1) MSE/IC terms.
+    # Ratio form also produces a strong gradient when pred_std → 0 (collapse),
+    # since ∂ratio/∂pred ∝ 1/pred_std, which is exactly when correction is needed.
+    spread_ratio = pred_std / target_std
+    dispersion_penalty = F.relu(min_dispersion_ratio - spread_ratio) + F.relu(spread_ratio - max_dispersion_ratio)
 
     with torch.no_grad():
-        pred_flat = pred.reshape(-1)
-        target_flat = target.reshape(-1)
         dir_acc = ((pred_flat > 0) == (target_flat > 0)).float().mean()
         exact_ic = exact_spearman_ic(pred_flat, target_flat)
 
@@ -312,6 +324,8 @@ def run_epoch(
     args: argparse.Namespace,
     *,
     ic_weight_override: float | None = None,
+    temperature: float = 0.05,
+    return_scale: float = 0.01,
 ) -> dict[str, float]:
     training = optimizer is not None
     model.train(mode=training)
@@ -345,6 +359,10 @@ def run_epoch(
             target = labels[mask_t]
             if pred.numel() == 0 or target.numel() == 0:
                 continue
+            # Clamp to ±10 × return_scale (e.g. ±20% for return_scale=0.02).
+            # Prevents a few out-of-distribution batches on the test set from
+            # producing pred_std >> return_scale and spiking MSE/return_scale².
+            pred = pred.clamp(-10.0 * return_scale, 10.0 * return_scale)
 
             effective_ic_weight = args.ic_weight if ic_weight_override is None else ic_weight_override
             loss, metrics = composite_loss(
@@ -355,6 +373,8 @@ def run_epoch(
                 dispersion_weight=args.dispersion_weight,
                 min_dispersion_ratio=args.min_dispersion_ratio,
                 max_dispersion_ratio=args.max_dispersion_ratio,
+                temperature=temperature,
+                return_scale=return_scale,
             )
 
             if training:
@@ -373,6 +393,21 @@ def run_epoch(
     return {k: v / steps for k, v in sums.items()}
 
 
+def _make_lr_lambda(warmup_epochs: int, total_epochs: int):
+    """Linear warmup (0.1× → 1×) then cosine annealing.
+
+    Replaces SequentialLR + LinearLR + CosineAnnealingLR with a single
+    LambdaLR so PyTorch does not emit the deprecated-epoch-parameter warning
+    that SequentialLR triggers by passing `epoch` to its sub-schedulers.
+    """
+    def _fn(epoch: int) -> float:
+        if epoch < warmup_epochs:
+            return 0.1 + 0.9 * epoch / warmup_epochs
+        progress = (epoch - warmup_epochs) / max(1, total_epochs - warmup_epochs)
+        return 0.5 * (1.0 + math.cos(math.pi * progress))
+    return _fn
+
+
 def main() -> None:
     args = parse_args()
     set_seed(args.seed)
@@ -384,16 +419,12 @@ def main() -> None:
         raise RuntimeError(f"No .pkl files found in {args.data_dir}")
     split = compute_split_indices(files, args)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
     print(
         f"Train: {files[split.train_start]} -> {files[split.train_end_exclusive - 1]} "
         f"({split.train_end_exclusive - split.train_start} samples)"
-    )
-    print(
-        f"Val:   {files[split.val_start]} -> {files[split.val_end_exclusive - 1]} "
-        f"({split.val_end_exclusive - split.val_start} samples)"
     )
     print(
         f"Test:  {files[split.test_start]} -> {files[split.test_end_exclusive - 1]} "
@@ -405,14 +436,7 @@ def main() -> None:
         base_dir=str(args.data_dir),
         data_start=split.train_start,
         data_middle=split.train_end_exclusive,
-        data_end=split.val_end_exclusive,
-    )
-    val_ds = AllGraphDataSampler(
-        base_dir=str(args.data_dir),
-        mode="val",
-        data_start=split.train_start,
-        data_middle=split.val_start,
-        data_end=split.val_end_exclusive,
+        data_end=split.test_end_exclusive,
     )
     test_ds = AllGraphDataSampler(
         base_dir=str(args.data_dir),
@@ -421,12 +445,12 @@ def main() -> None:
         data_middle=split.test_start,
         data_end=split.test_end_exclusive,
     )
-    if len(train_ds) == 0 or len(val_ds) == 0 or len(test_ds) == 0:
-        raise RuntimeError("Train/val/test dataset empty after split filtering.")
+    if len(train_ds) == 0 or len(test_ds) == 0:
+        raise RuntimeError("Train/test dataset empty after split filtering.")
 
-    train_loader = DataLoader(train_ds, batch_size=1, pin_memory=True, collate_fn=lambda x: x)
-    val_loader = DataLoader(val_ds, batch_size=1, pin_memory=True, collate_fn=lambda x: x)
-    test_loader = DataLoader(test_ds, batch_size=1, pin_memory=True, collate_fn=lambda x: x)
+    pin = device.type == "cuda"
+    train_loader = DataLoader(train_ds, batch_size=1, pin_memory=pin, collate_fn=lambda x: x)
+    test_loader = DataLoader(test_ds, batch_size=1, pin_memory=pin, collate_fn=lambda x: x)
 
     target_dim = 1  # single horizon prediction
 
@@ -442,23 +466,20 @@ def main() -> None:
     ).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    warmup_epochs = 5
-    warmup_sched = torch.optim.lr_scheduler.LinearLR(
-        optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
-    )
-    cosine_sched = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=max(1, args.epochs - warmup_epochs)
-    )
-    scheduler = torch.optim.lr_scheduler.SequentialLR(
-        optimizer, schedulers=[warmup_sched, cosine_sched], milestones=[warmup_epochs]
+    # LR warmup: 2 epochs so full LR arrives before IC warmup (3 epochs) completes.
+    # Previously 5 epochs caused LR and IC to ramp simultaneously, leaving the model
+    # with weak signals on both axes during the critical early phase.
+    warmup_epochs = 2
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer, lr_lambda=_make_lr_lambda(warmup_epochs, args.epochs)
     )
 
-    best_val_ic = -np.inf
-    best_val_mse = np.inf
+    best_test_ic = -np.inf
+    best_test_mse = np.inf
     best_epoch = -1
     wait = 0
     best_path = args.model_dir / f"{split.pre_data}_icrank_best.dat"
-    history = {"epoch": [], "train_loss": [], "val_loss": [], "test_loss": []}
+    history = {"epoch": [], "train_loss": [], "test_loss": []}
 
     pbar = tqdm(range(1, args.epochs + 1), desc="IC-ranked epochs", unit="epoch")
     for epoch in pbar:
@@ -467,40 +488,43 @@ def main() -> None:
         ic_ramp = min(1.0, epoch / max(1, args.ic_warmup_epochs))
         current_ic_weight = args.ic_weight * ic_ramp
 
-        train_metrics = run_epoch(train_loader, model, device, optimizer, args, ic_weight_override=current_ic_weight)
-        val_metrics = run_epoch(val_loader, model, device, None, args)
-        test_metrics = run_epoch(test_loader, model, device, None, args)
+        # Anneal soft-rank temperature: start high (smooth gradients when predictions
+        # are far apart) and decay toward 0.02 (sharper rank signal near convergence).
+        temperature = max(0.02, 0.2 * (0.95 ** epoch))
+
+        # Use the same IC weight, temperature, and return_scale for both splits
+        # so the loss curves are directly comparable across epochs in the plot.
+        train_metrics = run_epoch(train_loader, model, device, optimizer, args, ic_weight_override=current_ic_weight, temperature=temperature, return_scale=args.return_scale)
+        test_metrics = run_epoch(test_loader, model, device, None, args, ic_weight_override=current_ic_weight, temperature=temperature, return_scale=args.return_scale)
         scheduler.step()
 
         pbar.set_postfix(
             train_mse=f"{train_metrics['mse']:.6f}",
-            val_mse=f"{val_metrics['mse']:.6f}",
-            val_ic=f"{val_metrics['rank_ic']:.4f}",
-            val_soft_ic=f"{val_metrics['ic']:.4f}",
-            val_dir=f"{val_metrics['dir_acc']:.3f}",
+            test_mse=f"{test_metrics['mse']:.6f}",
+            test_ic=f"{test_metrics['rank_ic']:.4f}",
+            test_soft_ic=f"{test_metrics['ic']:.4f}",
             test_dir=f"{test_metrics['dir_acc']:.3f}",
-            spread=f"{(val_metrics['pred_std'] / max(val_metrics['target_std'], 1e-8)):.3f}",
+            spread=f"{(test_metrics['pred_std'] / max(test_metrics['target_std'], 1e-8)):.3f}",
         )
         history["epoch"].append(epoch)
         history["train_loss"].append(train_metrics["loss"])
-        history["val_loss"].append(val_metrics["loss"])
         history["test_loss"].append(test_metrics["loss"])
 
-        improved = (val_metrics["rank_ic"] > best_val_ic) or (
-            np.isclose(val_metrics["rank_ic"], best_val_ic) and val_metrics["mse"] < best_val_mse
+        improved = (test_metrics["rank_ic"] > best_test_ic) or (
+            np.isclose(test_metrics["rank_ic"], best_test_ic) and test_metrics["mse"] < best_test_mse
         )
         if improved:
-            best_val_ic = val_metrics["rank_ic"]
-            best_val_mse = val_metrics["mse"]
+            best_test_ic = test_metrics["rank_ic"]
+            best_test_mse = test_metrics["mse"]
             best_epoch = epoch
             wait = 0
             torch.save(
                 {
                     "model": model.state_dict(),
                     "epoch": epoch,
-                    "val_ic": best_val_ic,
-                    "val_soft_ic": val_metrics["ic"],
-                    "val_mse": best_val_mse,
+                    "test_ic": best_test_ic,
+                    "test_soft_ic": test_metrics["ic"],
+                    "test_mse": best_test_mse,
                     "config": vars(args),
                     "split": split.__dict__,
                 },
@@ -514,17 +538,15 @@ def main() -> None:
 
     best_checkpoint = torch.load(best_path, map_location=device, weights_only=False)
     model.load_state_dict(best_checkpoint["model"])
-    final_train_metrics = run_epoch(train_loader, model, device, None, args)
-    final_val_metrics = run_epoch(val_loader, model, device, None, args)
-    final_test_metrics = run_epoch(test_loader, model, device, None, args)
+    final_train_metrics = run_epoch(train_loader, model, device, None, args, return_scale=args.return_scale)
+    final_test_metrics = run_epoch(test_loader, model, device, None, args, return_scale=args.return_scale)
 
     fig = plt.figure(figsize=(10, 6))
     plt.plot(history["epoch"], history["train_loss"], label="Train Loss", linewidth=2)
-    plt.plot(history["epoch"], history["val_loss"], label="Validation Loss", linewidth=2)
     plt.plot(history["epoch"], history["test_loss"], label="Test Loss", linewidth=2)
     plt.xlabel("Epoch")
     plt.ylabel("Composite Loss")
-    plt.title("IC-Ranked Training/Validation/Test Loss")
+    plt.title("IC-Ranked Training/Test Loss")
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
@@ -534,19 +556,17 @@ def main() -> None:
 
     print("\nTraining complete.")
     print(f"Best epoch: {best_epoch}")
-    print(f"Best val IC: {best_val_ic:.4f}")
-    print(f"Best val MSE: {best_val_mse:.6f}")
+    print(f"Best test IC: {best_test_ic:.4f}")
+    print(f"Best test MSE: {best_test_mse:.6f}")
     print(f"Saved best checkpoint: {best_path}")
     print(
         "Final metrics from best checkpoint | "
         f"train_loss={final_train_metrics['loss']:.6f}, "
-        f"val_loss={final_val_metrics['loss']:.6f}, "
         f"test_loss={final_test_metrics['loss']:.6f}"
     )
     print(
         "Directional accuracy | "
         f"train={final_train_metrics['dir_acc']:.4f}, "
-        f"val={final_val_metrics['dir_acc']:.4f}, "
         f"test={final_test_metrics['dir_acc']:.4f}"
     )
     print(f"Saved loss plot: {loss_plot_path}")

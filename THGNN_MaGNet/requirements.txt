@@ -1,0 +1,11 @@
+# Core dependencies (same as THGNN)
+torch>=2.0.0
+numpy
+pandas
+matplotlib
+tqdm
+scikit-learn
+
+# Optional: install mamba-ssm to upgrade MAGEBlock from BiGRU to true Mamba SSM.
+# Requires CUDA and a compatible GPU driver. Only available on Linux/CUDA.
+# mamba-ssm>=1.2.0

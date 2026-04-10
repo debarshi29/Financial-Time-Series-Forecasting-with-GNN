@@ -216,6 +216,8 @@ def evaluate_fold(fold: Fold, checkpoint_path: Path, device: torch.device) -> di
         ic_weight=float(cfg.get("ic_weight", 0.35)),
         dispersion_weight=float(cfg.get("dispersion_weight", 0.2)),
         min_dispersion_ratio=float(cfg.get("min_dispersion_ratio", 0.2)),
+        max_dispersion_ratio=float(cfg.get("max_dispersion_ratio", 2.0)),
+        return_scale=float(cfg.get("return_scale", 0.01)),
     )
 
     model = StockHeteGAT(
@@ -262,7 +264,7 @@ def evaluate_fold(fold: Fold, checkpoint_path: Path, device: torch.device) -> di
     # Val metrics (re-computed for consistency)
     val_loader = _make_loader(fold.val_start, fold.val_end)
     if val_loader:
-        vm = run_epoch(val_loader, model, device, None, eval_args)
+        vm = run_epoch(val_loader, model, device, None, eval_args, return_scale=eval_args.return_scale)
         metrics.update({f"val_{k}": v for k, v in vm.items()})
     else:
         print(f"  Warning: val set empty for fold '{fold.label}'")
@@ -270,7 +272,7 @@ def evaluate_fold(fold: Fold, checkpoint_path: Path, device: torch.device) -> di
     # Test metrics
     test_loader = _make_loader(fold.test_start, fold.test_end)
     if test_loader:
-        tm = run_epoch(test_loader, model, device, None, eval_args)
+        tm = run_epoch(test_loader, model, device, None, eval_args, return_scale=eval_args.return_scale)
         metrics.update({f"test_{k}": v for k, v in tm.items()})
         print(
             f"  Val  IC={metrics.get('val_ic', float('nan')):.4f}  "

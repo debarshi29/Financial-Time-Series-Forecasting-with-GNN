@@ -63,7 +63,7 @@ NIFTY50_TICKERS: List[str] = [
     "WIPRO.NS",
 ]
 NIFTY50_TICKERS_TRIAL: List[str] = ["ADANIENT.NS", "TCS.NS"]
-    
+
 
 
 FEATURE_COLUMNS = ["open", "high", "low", "close", "to", "vol", "mom5", "mom10", "mom20", "rsi14", "vol20"]

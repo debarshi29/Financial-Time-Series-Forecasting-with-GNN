@@ -453,8 +453,9 @@ def main() -> None:
 
     target_dim = state_dict["predictor.0.weight"].shape[0]
     model = StockHeteGAT(
-        hidden_dim=int(cfg.get("hidden_dim", 128)),
-        num_heads=int(cfg.get("num_heads", 8)),
+        in_features=int(cfg.get("in_features", 12)),
+        hidden_dim=int(cfg.get("hidden_dim", 64)),
+        num_heads=int(cfg.get("num_heads", 4)),
         num_layers=int(cfg.get("num_layers", 1)),
         out_features=int(cfg.get("out_features", 32)),
         predictor_out_dim=target_dim,
