@@ -1,26 +1,34 @@
 """
-Hybrid THGNN × MaGNet model.
+Hybrid THGNN × MaGNet model — Cascaded-Parallel design.
 
-Architecture (clean hybrid — no redundant components):
+Architecture:
   Input (N, T, F)
-    → LayerNorm + cross-sectional demean           [THGNN preprocessing]
+    → LayerNorm + cross-sectional demean
     → Linear(F → D)                                [feature embedding]
-    → MAGEBlock × num_mage_layers                  [MaGNet §3.3, BiGRU-lite]
-        BiGRU(fwd+bwd) → Gating → SparseMoE → MHA
-    → h = Z[:, -1, :]  ∈ (N, D)                   [final temporal state]
-    → Pos GAT(h, pos_adj) → h_pos  ∈ (N, D)        [THGNN explicit correlation]
-    → Neg GAT(h, neg_adj) → h_neg  ∈ (N, D)        [THGNN explicit correlation]
-    → GPHypergraph(h)    → h_gph   ∈ (N, D)        [MaGNet §3.5.2 global groups]
-    → 4-stream semantic attention fusion            [THGNN extended]
-    → PairNorm-SI → Linear(D → 1)                  [THGNN]
+    → MAGEBlock × num_mage_layers                  [MaGNet temporal encoder]
+        BiGRU(fwd+bwd) → Gating → SparseMoE → MHA → Z_temp (N, T, D)
+    │
+    ├─── Path A: TCH(Z_temp)            → h_causal (N, D)  [lead-lag causality]
+    │    Flatten (T·N, D) → Causal MHA (block mask) → ReTanh FFN
+    │    → H_TCH incidence matrix → Hypergraph conv → slice last timestep
+    │
+    └─── Path B: h_temp = Z_temp[:, -1, :]         (N, D)
+            ├─── PosGAT(h_temp, pos_adj)  → h_pos  (N, D)  [explicit co-movement]
+            ├─── NegGAT(h_temp, neg_adj)  → h_neg  (N, D)  [explicit inverse-movement]
+            └─── GPHypergraph(h_temp)     → h_gph  (N, D)  [latent macro themes]
+
+  4-stream Semantic Attention Fusion(h_causal, h_pos, h_neg, h_gph)
+    → PairNorm-SI
+    → Linear(D → 1)                                (N, 1) predictions
 
 Design rationale:
-- TCH dropped: its causal attention over (T·N) is redundant with MAGE's temporal MHA.
-- F.2D Attn dropped: MAGE's MHA already captures cross-timestep dependencies per stock.
-- Pos/Neg GAT kept: provides explicit, pre-computed correlation-based inductive bias
-  that complements GPH's learned probabilistic hyperedges.
-- IC-ranked composite loss (MSE + Spearman IC + dispersion) kept from THGNN —
-  better for cross-sectional portfolio ranking than MaGNet's BCE.
+- TCH reinstated: captures asynchronous lead-lag causal ripples that the MAGE temporal
+  MHA misses because MHA fuses all timesteps per stock, not across stocks and time.
+- TCH and GPH/GAT are kept strictly parallel (Path A vs Path B) so each discovers an
+  orthogonal market force on pristine, un-mixed representations.
+- 2D Feature Attention dropped: MAGE's MHA already captures cross-timestep deps per stock.
+- IC-ranked composite loss (MSE + Spearman IC + dispersion) from THGNN kept — better
+  for cross-sectional portfolio ranking than MaGNet's original BCE.
 """
 
 from __future__ import annotations
@@ -128,16 +136,20 @@ class GraphAttnSemIndividual(Module):
 
 
 # ---------------------------------------------------------------------------
-# New components from MaGNet
+# Shared activation
 # ---------------------------------------------------------------------------
 
 def _retanh(x: torch.Tensor) -> torch.Tensor:
-    """ReTanh activation: 0 for x≤0, tanh(x) for x>0.
+    """ReTanh: 0 for x≤0, tanh(x) for x>0.
     Combines ReLU sparsity with tanh boundedness — keeps hyperedge
     assignments sparse while bounding them for numerical stability.
     """
     return torch.where(x <= 0, torch.zeros_like(x), torch.tanh(x))
 
+
+# ---------------------------------------------------------------------------
+# MaGNet components
+# ---------------------------------------------------------------------------
 
 class SparseMoE(nn.Module):
     """Top-1 Sparse Mixture-of-Experts layer (MaGNet §3.3.3).
@@ -152,7 +164,6 @@ class SparseMoE(nn.Module):
         super().__init__()
         D, E = embed_dim, num_experts
         self.gate = nn.Linear(D, E)
-        # Each expert: 2-layer FFN with GELU activation
         self.experts = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(D, D),
@@ -172,16 +183,13 @@ class SparseMoE(nn.Module):
         probs = torch.softmax(self.gate(x_flat), dim=-1)       # (K, E)
         assignments = probs.argmax(dim=-1)                     # (K,)
 
-        # Compute all experts: (K, D, E) — ensures every parameter gets gradients
         expert_outs = torch.stack(
             [expert(x_flat) for expert in self.experts], dim=-1
         )                                                       # (K, D, E)
 
-        # Gather the assigned expert output per token
         idx = assignments.view(N * T, 1, 1).expand(N * T, D, 1)
         selected = expert_outs.gather(dim=2, index=idx).squeeze(2)  # (K, D)
 
-        # Weight by routing probability (soft importance scaling)
         w = probs.gather(dim=1, index=assignments.unsqueeze(1))     # (K, 1)
         output = w * selected                                        # (K, D)
 
@@ -191,11 +199,9 @@ class SparseMoE(nn.Module):
 class MAGEBlock(nn.Module):
     """Mamba-Attention-Gating-Experts block (MaGNet §3.3), BiGRU-lite variant.
 
+    BiGRU(fwd + bwd) → Gating → SparseMoE → Multi-head self-attention.
     Replaces the Mamba SSM with a bidirectional GRU, eliminating the
-    mamba-ssm dependency while preserving the same information-flow design:
-      BiGRU(fwd + bwd) → Gating → SparseMoE → Multi-head self-attention
-
-    All sub-layers use residual connections and LayerNorm for stable training.
+    mamba-ssm dependency while preserving the same information-flow design.
     """
 
     def __init__(self, embed_dim: int, num_experts: int = 4,
@@ -203,24 +209,17 @@ class MAGEBlock(nn.Module):
         super().__init__()
         D = embed_dim
 
-        # Bidirectional GRU: hidden_size=D per direction → output (N, T, 2D)
         self.bigru = nn.GRU(
             input_size=D, hidden_size=D,
             num_layers=1, batch_first=True, bidirectional=True,
         )
-        # Gating: learns soft weighting between forward and backward states
-        # gate = σ(W_f · z_fwd + W_b · z_bwd)  — eq 5-6 in MaGNet
         self.gate_fwd = nn.Linear(D, D, bias=True)
         self.gate_bwd = nn.Linear(D, D, bias=False)
-
         self.norm_gru = nn.LayerNorm(D)
 
-        # Sparse MoE for market-regime specialisation
         self.moe = SparseMoE(embed_dim=D, num_experts=num_experts, dropout=dropout)
         self.norm_moe = nn.LayerNorm(D)
 
-        # Temporal self-attention (per stock, over T timesteps)
-        # batch_first=True: input (N, T, D), output (N, T, D)
         self.mha = nn.MultiheadAttention(
             embed_dim=D, num_heads=num_heads,
             dropout=dropout, batch_first=True,
@@ -232,27 +231,118 @@ class MAGEBlock(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (N, T, D)
 
-        # --- Bidirectional encoding + gating ---
         gru_out, _ = self.bigru(x)                         # (N, T, 2D)
         D = x.size(-1)
-        z_fwd = gru_out[:, :, :D]                          # (N, T, D)
-        z_bwd = gru_out[:, :, D:]                          # (N, T, D)
+        z_fwd = gru_out[:, :, :D]
+        z_bwd = gru_out[:, :, D:]
 
-        gate = torch.sigmoid(
-            self.gate_fwd(z_fwd) + self.gate_bwd(z_bwd)
-        )                                                   # (N, T, D)
-        z_G = gate * z_fwd + (1.0 - gate) * z_bwd         # (N, T, D)
-        z_G = self.norm_gru(self.drop(z_G) + x)           # residual
+        gate = torch.sigmoid(self.gate_fwd(z_fwd) + self.gate_bwd(z_bwd))
+        z_G = gate * z_fwd + (1.0 - gate) * z_bwd
+        z_G = self.norm_gru(self.drop(z_G) + x)
 
-        # --- Sparse MoE ---
-        z_moe = self.moe(z_G)                              # (N, T, D)
-        z_moe = self.norm_moe(self.drop(z_moe) + z_G)     # residual
+        z_moe = self.moe(z_G)
+        z_moe = self.norm_moe(self.drop(z_moe) + z_G)
 
-        # --- Temporal self-attention ---
-        z_attn, _ = self.mha(z_moe, z_moe, z_moe)        # (N, T, D)
-        z_out = self.norm_mha(self.drop(z_attn) + z_moe)  # residual
+        z_attn, _ = self.mha(z_moe, z_moe, z_moe)
+        z_out = self.norm_mha(self.drop(z_attn) + z_moe)
 
         return z_out                                        # (N, T, D)
+
+
+class TemporalCausalHypergraph(nn.Module):
+    """Temporal-Causal Hypergraph (TCH) from MaGNet §3.5.1.
+
+    Discovers asynchronous lead-lag causal relationships by treating every
+    (time, stock) pair as an independent node and attending causally across
+    the full T×N spatiotemporal grid.
+
+    Flow:
+      Z_temp (N, T, D)
+        → flatten to Z_flat (T·N, D)  [each row = one (time, stock) node]
+        → Causal MHA with upper-triangular block mask
+          [node at time t attends only to t' ≤ t — no future leakage]
+        → two-layer ReTanh FFN → H_TCH (T·N, M1) soft incidence matrix
+          [each column = one causal hyperedge over all (time, stock) nodes]
+        → efficient hypergraph conv: Z' = ELU(H·(H^T·Proj(Z))) + Z  [O(T·N·M1·D)]
+        → reshape (N, T, D) → slice final timestep → h_causal (N, D)
+    """
+
+    def __init__(
+        self,
+        embed_dim: int,
+        num_hyper_edges: int = 32,
+        num_heads: int = 4,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        D, M1 = embed_dim, num_hyper_edges
+
+        self.causal_mha = nn.MultiheadAttention(
+            embed_dim=D, num_heads=num_heads,
+            dropout=dropout, batch_first=True,
+        )
+        self.norm_mha = nn.LayerNorm(D)
+
+        # Two-layer FFN to build incidence matrix from causally-shaped features
+        self.to_hyper = nn.Sequential(
+            nn.Linear(D, D),
+            nn.GELU(),
+            nn.Linear(D, M1),
+        )
+
+        self.proj = nn.Linear(D, D, bias=False)
+        self.norm_out = nn.LayerNorm(D)
+        self.drop = nn.Dropout(dropout)
+
+    def forward(self, z_temp: torch.Tensor) -> torch.Tensor:
+        # z_temp: (N, T, D)
+        N, T, D = z_temp.shape
+        TN = T * N
+
+        # Flatten: (N, T, D) → ordered (t0·S0, …, t0·SN-1, t1·S0, …)
+        z_flat = z_temp.permute(1, 0, 2).reshape(TN, D)     # (T·N, D)
+
+        # Causal MHA: each (t, s) node can only attend to nodes at t' ≤ t
+        causal_mask = self._build_causal_mask(T, N, z_flat.device)
+        z_seq = z_flat.unsqueeze(0)                          # (1, T·N, D)
+        z_attn, _ = self.causal_mha(
+            z_seq, z_seq, z_seq,
+            attn_mask=causal_mask,
+            need_weights=False,
+        )
+        z_attn = z_attn.squeeze(0)                           # (T·N, D)
+        z_attn = self.norm_mha(self.drop(z_attn) + z_flat)  # residual
+
+        # Build sparse incidence matrix via ReTanh (bounds + sparsity without softmax)
+        H_TCH = _retanh(self.to_hyper(z_attn))              # (T·N, M1)
+
+        # Efficient hypergraph convolution — avoid materialising (T·N × T·N):
+        #   Z' = ELU( H · (H^T · Proj(Z)) )  →  O(T·N · M1 · D)
+        z_proj = self.proj(z_attn)                           # (T·N, D)
+        HT_z = H_TCH.t() @ z_proj                           # (M1, D)
+        z_out = F.elu(H_TCH @ HT_z)                         # (T·N, D)
+        z_out = self.norm_out(self.drop(z_out) + z_attn)    # residual
+
+        # Reshape back and return the causally-enriched final-timestep state
+        z_out = z_out.reshape(T, N, D).permute(1, 0, 2)     # (N, T, D)
+        return z_out[:, -1, :]                               # h_causal: (N, D)
+
+    @staticmethod
+    def _build_causal_mask(T: int, N: int, device: torch.device) -> torch.Tensor:
+        """Upper-triangular block causal mask.
+
+        Rows and cols represent (T·N) time-stock nodes ordered
+        (t0·S0, …, t0·SN-1, t1·S0, …, tT-1·SN-1).
+        Entry (i, j) is set to -inf when node j belongs to a strictly
+        later timestep than node i, preventing future-data leakage.
+        """
+        TN = T * N
+        idx = torch.arange(TN, device=device)
+        t_idx = idx // N                                     # timestep per node
+        future = t_idx.unsqueeze(1) < t_idx.unsqueeze(0)    # (TN, TN) bool
+        mask = torch.zeros(TN, TN, device=device)
+        mask[future] = float("-inf")
+        return mask
 
 
 class GPHypergraph(nn.Module):
@@ -260,82 +350,73 @@ class GPHypergraph(nn.Module):
 
     Learns soft hyperedge assignments and weights each hyperedge by its
     uniqueness (Jensen-Shannon Divergence vs other hyperedges).
-    Unique hyperedges capture distinct market sub-structures and receive
-    higher weight in the final hypergraph convolution.
 
-    Convolution: Z' = ELU(H · W · H^T · h · P) + h  (residual)
-    where H ∈ (N, M) is the soft incidence matrix,
+    Convolution: Z' = ELU(H · diag(w) · H^T · Proj(h)) + h  (residual)
+    where H ∈ (N, M) is the soft incidence matrix (column-softmax),
           W = diag(w_1, …, w_M) is the JSD-based importance weighting.
     """
 
     def __init__(self, embed_dim: int, num_hyper_edges: int = 32):
         super().__init__()
         D, M = embed_dim, num_hyper_edges
-        # Project node features to hyperedge membership space
         self.to_hyper = nn.Linear(D, M)
-        # Learnable node projection matrix P (eq 27 in MaGNet)
         self.proj = nn.Linear(D, D, bias=False)
         self.norm = nn.LayerNorm(D)
 
     def forward(self, h: torch.Tensor) -> torch.Tensor:
         # h: (N, D)
 
-        # Build soft incidence matrix
         H_raw = self.to_hyper(h)                    # (N, M)
-        H_raw = _retanh(H_raw)                      # sparse + bounded
-        H_GPH = torch.softmax(H_raw, dim=0)         # column-softmax: each column
-                                                     # is a prob dist over N stocks
+        H_raw = _retanh(H_raw)
+        H_GPH = torch.softmax(H_raw, dim=0)         # column-softmax → prob dist over stocks
 
-        # JSD-based hyperedge importance weights
         w = self._jsd_weights(H_GPH)                # (M,)
-        W = torch.diag(w)                            # (M, M)
 
-        # Hypergraph convolution
-        HW = H_GPH @ W                              # (N, M)
-        HWHT = HW @ H_GPH.t()                       # (N, N)
-        z = F.elu(HWHT @ self.proj(h))              # (N, D)
+        # Efficient conv: H · diag(w) · (H^T · Proj(h))
+        z_proj = self.proj(h)                        # (N, D)
+        HT_z = H_GPH.t() @ z_proj                   # (M, D)
+        HW_HT_z = H_GPH @ (w.unsqueeze(1) * HT_z)  # (N, D)
+        z = F.elu(HW_HT_z)
 
-        return self.norm(z + h)                     # residual connection
+        return self.norm(z + h)
 
     @staticmethod
     def _jsd_weights(H_GPH: torch.Tensor) -> torch.Tensor:
-        """Compute per-hyperedge importance via average Jensen-Shannon Divergence.
+        """Per-hyperedge importance via average Jensen-Shannon Divergence.
 
-        Hyperedges that are more distinct from others (high avg JSD) capture
-        unique market sub-structures and receive higher importance weight.
-        Z-score normalisation + softmax ensures bounded, differentiable weights.
+        Hyperedges more distinct from the others receive higher importance.
+        Z-score normalisation + softmax keeps weights bounded and differentiable.
         """
         eps = 1e-8
         H_t = H_GPH.t()                                    # (M, N)
         M = H_t.size(0)
 
-        # Pairwise mixture distributions m = 0.5*(p + q)
         p = H_t.unsqueeze(1).expand(M, M, -1)              # (M, M, N)
         q = H_t.unsqueeze(0).expand(M, M, -1)              # (M, M, N)
-        m = 0.5 * (p + q)                                   # (M, M, N)
+        m = 0.5 * (p + q)
 
-        # KL divergences: KL(p||m) and KL(q||m)
         kl_pm = (p * (p / (m + eps)).clamp(min=eps).log()).sum(dim=-1)  # (M, M)
-        kl_qm = (q * (q / (m + eps)).clamp(min=eps).log()).sum(dim=-1)  # (M, M)
-        jsd = (0.5 * (kl_pm + kl_qm)).clamp(min=0.0)       # (M, M), range [0, log2]
+        kl_qm = (q * (q / (m + eps)).clamp(min=eps).log()).sum(dim=-1)
+        jsd = (0.5 * (kl_pm + kl_qm)).clamp(min=0.0)
 
-        mu = jsd.mean(dim=1)                                # (M,) avg JSD per hyperedge
-        mu_z = (mu - mu.mean()) / (mu.std() + eps)          # z-score normalise
-        return torch.softmax(mu_z, dim=0)                   # (M,) importance weights
+        mu = jsd.mean(dim=1)
+        mu_z = (mu - mu.mean()) / (mu.std() + eps)
+        return torch.softmax(mu_z, dim=0)                  # (M,)
 
 
 # ---------------------------------------------------------------------------
-# Hybrid model
+# Hybrid model — Cascaded-Parallel design
 # ---------------------------------------------------------------------------
 
 class HybridStockModel(nn.Module):
-    """Hybrid THGNN × MaGNet stock prediction model.
+    """Cascaded-Parallel Hybrid THGNN × MaGNet stock prediction model.
 
     Combines:
-    - MAGE temporal encoder (BiGRU-lite) from MaGNet
-    - Pos/Neg heterogeneous GAT from THGNN
-    - Global Probabilistic Hypergraph from MaGNet
-    - 4-stream semantic attention fusion + PairNorm from THGNN
+    - MAGE temporal encoder (BiGRU-lite) for per-stock sequence modelling
+    - TCH (MaGNet) for asynchronous cross-stock lead-lag causal discovery
+    - Pos/Neg GAT (THGNN) for explicit synchronous correlation streams
+    - GPH (MaGNet) for latent macro-thematic groupings
+    - 4-stream semantic attention fusion + PairNorm (THGNN)
     - IC-ranked composite loss (external, in training script)
 
     Interface is drop-in compatible with StockHeteGAT:
@@ -352,6 +433,8 @@ class HybridStockModel(nn.Module):
         gat_heads: int = 8,
         gat_out_features: int = 8,
         num_hyper_edges: int = 32,
+        num_tch_hyper_edges: int = 32,
+        num_tch_heads: int = 4,
         dropout: float = 0.1,
         predictor_out_dim: int = 1,
         predictor_activation: str | None = None,
@@ -376,17 +459,22 @@ class HybridStockModel(nn.Module):
 
         self.drop = nn.Dropout(dropout)
 
-        # --- Pos / Neg GAT (THGNN) ---
+        # --- Path A: Temporal-Causal Hypergraph (MaGNet) ---
+        self.tch = TemporalCausalHypergraph(
+            embed_dim=D,
+            num_hyper_edges=num_tch_hyper_edges,
+            num_heads=num_tch_heads,
+            dropout=dropout,
+        )
+
+        # --- Path B: Pos / Neg GAT (THGNN) ---
         gat_dim = gat_heads * gat_out_features
         self.pos_gat = GraphAttnMultiHead(D, gat_out_features, num_heads=gat_heads)
         self.neg_gat = GraphAttnMultiHead(D, gat_out_features, num_heads=gat_heads)
-
-        # Project all streams to D
-        self.mlp_self = nn.Linear(D, D)
         self.mlp_pos = nn.Linear(gat_dim, D)
         self.mlp_neg = nn.Linear(gat_dim, D)
 
-        # --- Global Probabilistic Hypergraph (MaGNet) ---
+        # --- Path B: Global Probabilistic Hypergraph (MaGNet) ---
         self.gph = GPHypergraph(embed_dim=D, num_hyper_edges=num_hyper_edges)
 
         # --- 4-stream semantic fusion + normalisation ---
@@ -399,7 +487,6 @@ class HybridStockModel(nn.Module):
             layers.append(nn.Sigmoid())
         self.predictor = nn.Sequential(*layers)
 
-        # Weight initialisation
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight)
@@ -417,42 +504,42 @@ class HybridStockModel(nn.Module):
 
         # Preprocessing: normalise + cross-sectional demean
         x = self.input_norm(inputs)
-        x = x - x.mean(dim=0, keepdim=True)    # remove market factor
+        x = x - x.mean(dim=0, keepdim=True)
 
         # Feature embedding: (N, T, F) → (N, T, D)
         x = self.embed(x)
 
-        # MAGE blocks: stacked temporal encoding
+        # MAGE temporal encoding → Z_temp (N, T, D)
         z = x
         for mage in self.mage_layers:
-            z = mage(z)                          # (N, T, D)
+            z = mage(z)
 
-        # Extract final temporal state as node representation
-        h = self.drop(z[:, -1, :])              # (N, D)
+        # ── Path A: Temporal-Causal Hypergraph ──────────────────────────────
+        # Takes the full 3D sequence; discovers asynchronous lead-lag causality
+        h_causal = self.drop(self.tch(z))              # (N, D)
 
-        # Stream 1: self projection
-        h_self = self.drop(torch.relu(self.mlp_self(h)))      # (N, D)
+        # ── Path B: Cross-sectional streams on final-timestep state ─────────
+        # The current state is pristine (un-mixed by TCH) → sharp cluster signals
+        h_temp = self.drop(z[:, -1, :])                # (N, D)
 
-        # Stream 2 & 3: pos/neg GAT over correlation graph
-        h_pos_raw, _ = self.pos_gat(h, pos_adj)
-        h_neg_raw, _ = self.neg_gat(h, neg_adj)
+        h_pos_raw, _ = self.pos_gat(h_temp, pos_adj)
         h_pos = self.drop(torch.relu(self.mlp_pos(h_pos_raw)))  # (N, D)
+
+        h_neg_raw, _ = self.neg_gat(h_temp, neg_adj)
         h_neg = self.drop(torch.relu(self.mlp_neg(h_neg_raw)))  # (N, D)
 
-        # Stream 4: global probabilistic hypergraph
-        h_gph = self.gph(h)                                     # (N, D)
+        h_gph = self.gph(h_temp)                       # (N, D)
 
-        # 4-stream semantic attention fusion
+        # ── 4-stream semantic attention fusion ──────────────────────────────
         all_streams = torch.stack(
-            [h_self, h_pos, h_neg, h_gph], dim=1
-        )                                                        # (N, 4, D)
+            [h_causal, h_pos, h_neg, h_gph], dim=1
+        )                                               # (N, 4, D)
         fused, sem_weights = self.sem_attn(
             all_streams, requires_weight=requires_weight
-        )                                                        # (N, D)
+        )                                               # (N, D)
 
         fused = self.pn(fused)
-
-        out = self.predictor(fused)                             # (N, 1)
+        out = self.predictor(fused)                    # (N, 1)
 
         if requires_weight:
             return out, sem_weights

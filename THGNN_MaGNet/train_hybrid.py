@@ -1,8 +1,8 @@
 """
-Training script for the hybrid THGNN × MaGNet model.
+Training script for the Cascaded-Parallel Hybrid THGNN × MaGNet model.
 
 Loss function: composite MSE + Spearman IC + dispersion penalty (from THGNN).
-Model:         HybridStockModel (MAGE temporal encoder + pos/neg GAT + GPH).
+Model:         HybridStockModel (MAGE → TCH || Pos/Neg GAT + GPH → Semantic Fusion).
 
 Usage examples
 --------------
@@ -13,8 +13,8 @@ Usage examples
     python train_hybrid.py --train-start-date 2018-01-01 --train-end-date 2023-12-31 \
         --test-start-date 2024-01-01 --test-end-date 2024-12-31
 
-# Larger embed dim for N=300:
-    python train_hybrid.py --embed-dim 128 --num-hyper-edges 64
+# Larger embed dim for N=300 universe:
+    python train_hybrid.py --embed-dim 128 --num-hyper-edges 64 --num-tch-hyper-edges 64
 
 # Custom data directory:
     python train_hybrid.py --data-dir /path/to/data_train_predict
@@ -99,6 +99,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num-hyper-edges",  type=int, default=32,
                    help="Number of hyperedges M in the GPH module. "
                         "Increase for larger universes (e.g. 64 for N=300).")
+    p.add_argument("--num-tch-hyper-edges", type=int, default=32,
+                   help="Number of causal hyperedges M1 in the TCH module.")
+    p.add_argument("--num-tch-heads",       type=int, default=4,
+                   help="Number of attention heads in TCH's causal MHA. "
+                        "Must evenly divide --embed-dim.")
     # Loss weights
     p.add_argument("--mse-weight",          type=float, default=0.7)
     p.add_argument("--ic-weight",           type=float, default=0.5)
@@ -450,6 +455,8 @@ def main() -> None:
         gat_heads=args.gat_heads,
         gat_out_features=args.gat_out_features,
         num_hyper_edges=args.num_hyper_edges,
+        num_tch_hyper_edges=args.num_tch_hyper_edges,
+        num_tch_heads=args.num_tch_heads,
         dropout=args.dropout,
         predictor_out_dim=1,
         predictor_activation=None,
