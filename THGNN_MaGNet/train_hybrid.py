@@ -80,46 +80,46 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--test-start-date",  type=str, default="2025-01-01")
     p.add_argument("--test-end-date",    type=str, default="2026-12-31")
     # Training
-    p.add_argument("--epochs",         type=int,   default=80)
-    p.add_argument("--lr",             type=float, default=5e-4)
-    p.add_argument("--weight-decay",   type=float, default=5e-5)
-    p.add_argument("--dropout",        type=float, default=0.1)
-    p.add_argument("--patience",       type=int,   default=6)
+    p.add_argument("--epochs",         type=int,   default=60)
+    p.add_argument("--lr",             type=float, default=1e-4)   # was 5e-4 — too high for composite loss
+    p.add_argument("--weight-decay",   type=float, default=1e-4)   # was 5e-5 — more regularisation
+    p.add_argument("--dropout",        type=float, default=0.25)   # was 0.1 — reduced overfitting
+    p.add_argument("--patience",       type=int,   default=8)
     p.add_argument("--seed",           type=int,   default=42)
-    # Model architecture
+    # Model architecture — scaled down for Nifty50 universe (N≈50)
     p.add_argument("--in-features",      type=int, default=12,
                    help="Input feature dimension per stock per timestep.")
-    p.add_argument("--embed-dim",        type=int, default=64,
+    p.add_argument("--embed-dim",        type=int, default=32,    # was 64 — right-sized for N=50
                    help="Core embedding dimension D used throughout the model.")
     p.add_argument("--num-mage-layers",  type=int, default=1,
                    help="Number of stacked MAGE blocks.")
-    p.add_argument("--num-moe-experts",  type=int, default=4,
+    p.add_argument("--num-moe-experts",  type=int, default=2,     # was 4
                    help="Number of experts in each SparseMoE layer.")
     p.add_argument("--num-mha-heads",    type=int, default=2,
                    help="Number of heads in MAGE's temporal self-attention.")
-    p.add_argument("--gat-heads",        type=int, default=8,
+    p.add_argument("--gat-heads",        type=int, default=4,     # was 8
                    help="Number of heads in pos/neg GAT layers.")
     p.add_argument("--gat-out-features", type=int, default=8,
                    help="Per-head output dimension in pos/neg GAT.")
-    p.add_argument("--num-hyper-edges",  type=int, default=32,
+    p.add_argument("--num-hyper-edges",  type=int, default=16,    # was 32
                    help="Number of hyperedges M in the GPH module. "
                         "Increase for larger universes (e.g. 64 for N=300).")
-    p.add_argument("--num-tch-hyper-edges", type=int, default=32,
+    p.add_argument("--num-tch-hyper-edges", type=int, default=16, # was 32
                    help="Number of causal hyperedges M1 in the TCH module.")
     p.add_argument("--num-tch-heads",       type=int, default=4,
                    help="Number of attention heads in TCH's causal MHA. "
                         "Must evenly divide --embed-dim.")
-    # Loss weights
-    p.add_argument("--mse-weight",          type=float, default=0.7)
-    p.add_argument("--ic-weight",           type=float, default=0.5)
-    p.add_argument("--dispersion-weight",   type=float, default=0.3)
-    p.add_argument("--min-dispersion-ratio", type=float, default=0.5)
-    p.add_argument("--max-dispersion-ratio", type=float, default=2.0)
+    # Loss weights — MSE-dominant; IC introduced gradually
+    p.add_argument("--mse-weight",          type=float, default=1.0)   # was 0.7
+    p.add_argument("--ic-weight",           type=float, default=0.2)   # was 0.5
+    p.add_argument("--dispersion-weight",   type=float, default=0.05)  # was 0.3
+    p.add_argument("--min-dispersion-ratio", type=float, default=0.3)
+    p.add_argument("--max-dispersion-ratio", type=float, default=3.0)
     p.add_argument("--return-scale", type=float, default=0.02,
                    help="Typical daily return std used to normalise MSE.")
     p.add_argument("--target-horizon", type=int, default=0,
                    help="Which label horizon to train on (0=next-day, 1, 2).")
-    p.add_argument("--ic-warmup-epochs", type=int, default=3,
+    p.add_argument("--ic-warmup-epochs", type=int, default=10,         # was 3 — gradual IC ramp
                    help="Ramp IC weight from 0 to --ic-weight over this many epochs.")
     # Overfitting / divergence guard
     p.add_argument("--max-loss-ratio", type=float, default=3.5,
@@ -463,7 +463,7 @@ def main() -> None:
 
     # ---- logging setup ----
     run_tag    = split.pre_data
-    log_path   = log_dir / f"{run_tag}_hybrid_train.log"
+    log_path   = log_dir / f"{run_tag}_hybrid_train.txt"
     csv_path   = log_dir / f"{run_tag}_hybrid_metrics.csv"
     json_path  = log_dir / f"{run_tag}_hybrid_summary.json"
     plot_path  = PLOT_DIR / f"{run_tag}_hybrid_loss_curve.png"
@@ -499,6 +499,28 @@ def main() -> None:
     if len(train_ds) == 0 or len(test_ds) == 0:
         raise RuntimeError("Train/test dataset empty after split filtering.")
 
+    # ---- Label statistics diagnostic ----
+    # Samples a few training graphs to report actual label std/mean.
+    # Use this to verify --return-scale is in the right ballpark.
+    _label_samples = []
+    for _s in train_ds.data_all[:min(50, len(train_ds))]:
+        _lbl = _s["labels"]
+        if hasattr(_lbl, "numpy"):
+            _lbl = _lbl.numpy()
+        _lbl = np.array(_lbl).reshape(-1)
+        if _lbl.ndim > 1:
+            _lbl = _lbl[:, 0]
+        _label_samples.append(_lbl)
+    if _label_samples:
+        _all_labels = np.concatenate(_label_samples)
+        logger.info(
+            f"Label stats (train, first 50 samples) | "
+            f"mean={_all_labels.mean():.5f}  std={_all_labels.std():.5f}  "
+            f"min={_all_labels.min():.5f}  max={_all_labels.max():.5f}  "
+            f"--return-scale={args.return_scale}  "
+            f"ratio(std/return_scale)={_all_labels.std()/args.return_scale:.3f}"
+        )
+
     pin = device.type == "cuda"
     train_loader = DataLoader(train_ds, batch_size=1, pin_memory=pin,
                               collate_fn=lambda x: x)
@@ -528,7 +550,7 @@ def main() -> None:
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
     scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, lr_lambda=_make_lr_lambda(2, args.epochs)
+        optimizer, lr_lambda=_make_lr_lambda(5, args.epochs)
     )
 
     best_test_ic   = -np.inf
@@ -734,6 +756,11 @@ def main() -> None:
         "total_epochs_run":len(epochs_arr),
         "total_time_s":    round(total_time, 1),
         "args":            {k: str(v) for k, v in vars(args).items()},
+        # per-epoch history — full record even if CSV is gitignored
+        "epoch_history":   {
+            k: [round(v, 6) if isinstance(v, float) else v for v in vals]
+            for k, vals in history.items()
+        },
     }
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
@@ -753,7 +780,8 @@ def main() -> None:
         f"dir_acc={final_test['dir_acc']:.4f}"
     )
     logger.info(f"Loss plot:        {plot_path}")
-    logger.info(f"CSV metrics:      {csv_path}")
+    logger.info(f"Text log:         {log_path}")
+    logger.info(f"CSV metrics:      {csv_path}  (gitignored — see epoch_history in JSON)")
     logger.info(f"JSON summary:     {json_path}")
     logger.info(f"Total wall time:  {total_time/60:.1f} min")
 
