@@ -1,0 +1,13 @@
+# MultiAgent + Streamlit demo dependencies
+# Install with: pip install -r requirements.txt
+# (torch should already be installed from THGNN_MaGNet/pyproject.toml)
+
+langgraph>=0.2.0
+transformers>=4.40.0
+yfinance>=0.2.40
+scipy>=1.13.0
+streamlit>=1.35.0
+matplotlib>=3.8.0
+pandas>=2.0.0
+numpy>=1.26.0
+tqdm>=4.66.0

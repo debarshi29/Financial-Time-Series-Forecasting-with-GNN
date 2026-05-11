@@ -155,8 +155,6 @@ def train_fold(fold: Fold, args: argparse.Namespace) -> Path:
         sys.executable, "train_ic_ranked.py",
         "--train-start-date", fold.train_start,
         "--train-end-date",   fold.train_end,
-        "--val-start-date",   fold.val_start,
-        "--val-end-date",     fold.val_end,
         "--test-start-date",  fold.test_start,
         "--test-end-date",    fold.test_end,
         "--epochs",           str(args.epochs),

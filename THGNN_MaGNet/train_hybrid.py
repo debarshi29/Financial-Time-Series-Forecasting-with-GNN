@@ -80,52 +80,52 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--test-start-date",  type=str, default="2025-01-01")
     p.add_argument("--test-end-date",    type=str, default="2026-12-31")
     # Training
-    p.add_argument("--epochs",         type=int,   default=60)
-    p.add_argument("--lr",             type=float, default=1e-4)   # was 5e-4 — too high for composite loss
-    p.add_argument("--weight-decay",   type=float, default=1e-4)   # was 5e-5 — more regularisation
-    p.add_argument("--dropout",        type=float, default=0.25)   # was 0.1 — reduced overfitting
-    p.add_argument("--patience",       type=int,   default=8)
+    p.add_argument("--epochs",         type=int,   default=80)
+    p.add_argument("--lr",             type=float, default=2e-4)
+    p.add_argument("--weight-decay",   type=float, default=1e-4)
+    p.add_argument("--dropout",        type=float, default=0.2)
+    p.add_argument("--patience",       type=int,   default=15)
     p.add_argument("--seed",           type=int,   default=42)
-    # Model architecture — scaled down for Nifty50 universe (N≈50)
+    # Model architecture — sized for Nifty500 universe (N≈350)
     p.add_argument("--in-features",      type=int, default=12,
                    help="Input feature dimension per stock per timestep.")
-    p.add_argument("--embed-dim",        type=int, default=32,    # was 64 — right-sized for N=50
+    p.add_argument("--embed-dim",        type=int, default=64,
                    help="Core embedding dimension D used throughout the model.")
     p.add_argument("--num-mage-layers",  type=int, default=1,
                    help="Number of stacked MAGE blocks.")
-    p.add_argument("--num-moe-experts",  type=int, default=2,     # was 4
+    p.add_argument("--num-moe-experts",  type=int, default=4,
                    help="Number of experts in each SparseMoE layer.")
     p.add_argument("--num-mha-heads",    type=int, default=2,
                    help="Number of heads in MAGE's temporal self-attention.")
-    p.add_argument("--gat-heads",        type=int, default=4,     # was 8
+    p.add_argument("--gat-heads",        type=int, default=8,
                    help="Number of heads in pos/neg GAT layers.")
     p.add_argument("--gat-out-features", type=int, default=8,
                    help="Per-head output dimension in pos/neg GAT.")
-    p.add_argument("--num-hyper-edges",  type=int, default=16,    # was 32
+    p.add_argument("--num-hyper-edges",  type=int, default=32,
                    help="Number of hyperedges M in the GPH module. "
-                        "Increase for larger universes (e.g. 64 for N=300).")
-    p.add_argument("--num-tch-hyper-edges", type=int, default=16, # was 32
+                        "Increase for larger universes (e.g. 64 for N=500).")
+    p.add_argument("--num-tch-hyper-edges", type=int, default=32,
                    help="Number of causal hyperedges M1 in the TCH module.")
     p.add_argument("--num-tch-heads",       type=int, default=4,
                    help="Number of attention heads in TCH's causal MHA. "
                         "Must evenly divide --embed-dim.")
-    # Loss weights — MSE-dominant; IC introduced gradually
-    p.add_argument("--mse-weight",          type=float, default=1.0)   # was 0.7
-    p.add_argument("--ic-weight",           type=float, default=0.2)   # was 0.5
-    p.add_argument("--dispersion-weight",   type=float, default=0.05)  # was 0.3
+    # Loss weights — IC-weighted for cross-sectional ranking
+    p.add_argument("--mse-weight",          type=float, default=0.4)
+    p.add_argument("--ic-weight",           type=float, default=0.8)
+    p.add_argument("--dispersion-weight",   type=float, default=0.1)
     p.add_argument("--min-dispersion-ratio", type=float, default=0.3)
     p.add_argument("--max-dispersion-ratio", type=float, default=3.0)
     p.add_argument("--return-scale", type=float, default=0.02,
                    help="Typical daily return std used to normalise MSE.")
     p.add_argument("--target-horizon", type=int, default=0,
                    help="Which label horizon to train on (0=next-day, 1, 2).")
-    p.add_argument("--ic-warmup-epochs", type=int, default=10,         # was 3 — gradual IC ramp
+    p.add_argument("--ic-warmup-epochs", type=int, default=5,
                    help="Ramp IC weight from 0 to --ic-weight over this many epochs.")
     # Overfitting / divergence guard
     p.add_argument("--max-loss-ratio", type=float, default=3.5,
                    help="Stop if test_loss / train_loss exceeds this for --overfit-patience "
                         "consecutive epochs (divergence guard).")
-    p.add_argument("--overfit-patience", type=int, default=3,
+    p.add_argument("--overfit-patience", type=int, default=5,
                    help="Consecutive epochs of loss-ratio violation before divergence stop.")
     # Logging
     p.add_argument("--log-dir", type=Path, default=None,
@@ -143,6 +143,7 @@ def set_seed(seed: int) -> None:
     np.random.seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+        torch.set_float32_matmul_precision("high")  # TF32 on Ampere GPUs
 
 
 def _index_for_date(file_dates: list[pd.Timestamp], date_str: str) -> int:
@@ -321,14 +322,15 @@ def composite_loss(
         + ic_weight       * ic_loss
         + dispersion_weight * dispersion_penalty
     )
+    # Return GPU tensors — caller accumulates on GPU and syncs once per epoch
     metrics = {
-        "mse":        float(mse.detach().cpu()),
-        "ic":         float(soft_corr.detach().cpu()),
-        "rank_ic":    float(exact_ic.detach().cpu()),
-        "pred_std":   float(pred_std.detach().cpu()),
-        "target_std": float(target_std.detach().cpu()),
-        "disp_pen":   float(dispersion_penalty.detach().cpu()),
-        "dir_acc":    float(dir_acc.cpu()),
+        "mse":        mse.detach(),
+        "ic":         soft_corr.detach(),
+        "rank_ic":    exact_ic,
+        "pred_std":   pred_std.detach(),
+        "target_std": target_std.detach(),
+        "disp_pen":   dispersion_penalty.detach(),
+        "dir_acc":    dir_acc,
     }
     return loss, metrics
 
@@ -392,18 +394,18 @@ def run_epoch(
                 loss.backward()
                 grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
-                sums["grad_norm"] += float(grad_norm)
+                sums["grad_norm"] += grad_norm  # GPU tensor — sync deferred to epoch end
             else:
                 sums["grad_norm"] += 0.0
 
-            sums["loss"] += float(loss.detach().cpu())
+            sums["loss"] += loss.detach()       # GPU tensor — sync deferred to epoch end
             for k in ("mse", "ic", "rank_ic", "pred_std", "target_std", "disp_pen", "dir_acc"):
-                sums[k] += metrics[k]
+                sums[k] += metrics[k]           # GPU tensor accumulation
             steps += 1
 
     if steps == 0:
         return {k: 0.0 for k in sums}
-    return {k: v / steps for k, v in sums.items()}
+    return {k: float(v) / steps for k, v in sums.items()}  # one GPU→CPU sync per metric
 
 
 def _make_lr_lambda(warmup_epochs: int, total_epochs: int):

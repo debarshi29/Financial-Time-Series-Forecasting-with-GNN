@@ -1,0 +1,22 @@
+2026-05-10 00:36:07  Device: cuda
+2026-05-10 00:36:07  Train: 2015-02-27.pkl -> 2023-12-29.pkl (2182 samples)
+2026-05-10 00:36:07  Test:  2024-01-01.pkl -> 2026-02-27.pkl (536 samples)
+2026-05-10 00:36:07  Args: {'data_dir': WindowsPath('C:/Users/HP/Documents/Financial Time Series Forecasting with GNN/THGNN/data/data_train_predict'), 'model_dir': WindowsPath('C:/Users/HP/Documents/Financial Time Series Forecasting with GNN/THGNN/data/model_saved'), 'train_start_date': '2015-01-01', 'train_end_date': '2023-12-31', 'test_start_date': '2024-01-01', 'test_end_date': '2026-02-28', 'epochs': 60, 'lr': 0.0001, 'weight_decay': 0.0001, 'dropout': 0.25, 'patience': 8, 'seed': 42, 'in_features': 12, 'embed_dim': 32, 'num_mage_layers': 1, 'num_moe_experts': 2, 'num_mha_heads': 2, 'gat_heads': 4, 'gat_out_features': 8, 'num_hyper_edges': 16, 'num_tch_hyper_edges': 16, 'num_tch_heads': 4, 'mse_weight': 1.0, 'ic_weight': 0.2, 'dispersion_weight': 0.05, 'min_dispersion_ratio': 0.3, 'max_dispersion_ratio': 3.0, 'return_scale': 0.02, 'target_horizon': 0, 'ic_warmup_epochs': 10, 'max_loss_ratio': 3.5, 'overfit_patience': 3, 'log_dir': None}
+2026-05-10 00:36:48  Label stats (train, first 50 samples) | mean=-0.00030  std=0.02603  min=-0.20000  max=0.21087  --return-scale=0.02  ratio(std/return_scale)=1.302
+2026-05-10 00:36:48  Hybrid model parameters: 40,059
+2026-05-10 00:36:50  CSV log  -> C:\Users\HP\Documents\Financial Time Series Forecasting with GNN\THGNN\data\plots\2023-12-29_hybrid_metrics.csv
+2026-05-10 00:36:50  Text log -> C:\Users\HP\Documents\Financial Time Series Forecasting with GNN\THGNN\data\plots\2023-12-29_hybrid_train.txt
+2026-05-10 00:36:50  ----------------------------------------------------------------------------------------------------
+2026-05-10 00:36:50    Ep        LR   tr_loss   tr_mse   tr_ic   tr_gn   te_loss   te_mse   te_ic  te_dir  ratio    secs  flag
+2026-05-10 00:36:50  ----------------------------------------------------------------------------------------------------
+2026-05-10 00:43:26     1  1.00e-05   17.4541  17.3833  0.0028 117.840    6.6074   6.5834 -0.0056  0.4979   0.38   396.0s  
+2026-05-10 00:43:26    => Checkpoint saved (rank_ic=-0.0056)
+2026-05-10 00:49:57     2  2.80e-05    2.9971   2.9571 -0.0002 201.794    3.5164   3.4757  0.0007  0.5064   1.17   390.7s  
+2026-05-10 00:49:57    => Checkpoint saved (rank_ic=0.0007)
+2026-05-10 00:56:20     3  4.60e-05    1.5526   1.4902  0.0004  46.216    1.1230   1.0507  0.0010  0.5130   0.72   382.3s  
+2026-05-10 00:56:20    => Checkpoint saved (rank_ic=0.0010)
+2026-05-10 01:02:38     4  6.40e-05    1.3514   1.2610  0.0012   7.779    1.1402   1.0472  0.0095  0.5131   0.84   378.5s  
+2026-05-10 01:02:38    => Checkpoint saved (rank_ic=0.0095)
+2026-05-10 01:12:17     5  8.20e-05    1.3667   1.2546  0.0023   9.150    1.1597   1.0496  0.0138  0.5131   0.85   578.6s  
+2026-05-10 01:12:17    => Checkpoint saved (rank_ic=0.0138)
+2026-05-10 01:30:46     6  1.00e-04    1.3858   1.2536  0.0022  10.522    1.1826   1.0546  0.0122  0.5131   0.85  1109.3s  

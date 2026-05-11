@@ -41,6 +41,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-dir", type=Path, default=MODEL_DIR)
     parser.add_argument("--train-start-date", type=str, default="2015-01-01")
     parser.add_argument("--train-end-date", type=str, default="2024-12-31")
+    parser.add_argument("--val-start-date", type=str, default=None,
+                        help="Ignored — kept for walk_forward_train.py compatibility.")
+    parser.add_argument("--val-end-date", type=str, default=None,
+                        help="Ignored — kept for walk_forward_train.py compatibility.")
     parser.add_argument("--test-start-date", type=str, default="2025-01-01")
     parser.add_argument("--test-end-date", type=str, default="2026-12-31")
     parser.add_argument("--epochs", type=int, default=80)
@@ -63,12 +67,12 @@ def parse_args() -> argparse.Namespace:
                              "toward near-zero predictions with no gradient pressure to spread.")
     parser.add_argument("--max-dispersion-ratio", type=float, default=2.0,
                         help="Penalize pred_std > max_dispersion_ratio * target_std to prevent over-spreading.")
-    parser.add_argument("--return-scale", type=float, default=0.02,
+    parser.add_argument("--return-scale", type=float, default=0.023,
                         help="Typical daily return std used to normalize MSE. "
                              "MSE is divided by return_scale**2 so it is O(1) and scale-consistent "
-                             "across all batches and splits. Default 0.02 matches Nifty50 cross-sectional "
-                             "return std (~2%% per day in decimal form). Set to ~1.0 if returns are in "
-                             "percentage points.")
+                             "across all batches and splits. Default 0.023 matches Nifty500 (354-stock) "
+                             "cross-sectional return std (median ~2.3%% per day in decimal form). "
+                             "Set to ~1.0 if returns are in percentage points.")
     parser.add_argument("--target-horizon", type=int, default=0,
                         help="Which label horizon to train on (0=next-day, 1, 2). "
                              "Avoids conflicting gradients from negatively correlated horizons.")
@@ -182,7 +186,7 @@ def _soft_rank(x: torch.Tensor, temperature: float = 0.05) -> torch.Tensor:
     As temperature → 0 this converges to true rank; larger temperature smooths gradients.
     τ=0.05 (vs. original 0.01) gives smoother gradients — less risk of vanishing signal
     when predictions are already approximately rank-ordered.
-    O(N²) in the number of stocks — fine for N ≈ 50.
+    O(N²) in the number of stocks — fine for N ≈ 354.
     """
     diff = x.unsqueeze(0) - x.unsqueeze(1)  # (N, N): diff[i, j] = x[i] - x[j]
     return torch.sigmoid(diff / temperature).sum(dim=1)  # (N,)
@@ -262,7 +266,7 @@ def composite_loss(
     min_dispersion_ratio: float,
     max_dispersion_ratio: float = 2.0,
     temperature: float = 0.05,
-    return_scale: float = 0.01,
+    return_scale: float = 0.023,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     pred = _ensure_2d(pred)
     target = _ensure_2d(target)

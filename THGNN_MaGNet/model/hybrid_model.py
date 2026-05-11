@@ -77,9 +77,15 @@ class GraphAttnMultiHead(Module):
         support = support.reshape(-1, self.num_heads, self.out_features).permute(1, 0, 2)
         f_1 = torch.matmul(support, self.weight_u).reshape(self.num_heads, 1, -1)
         f_2 = torch.matmul(support, self.weight_v).reshape(self.num_heads, -1, 1)
-        weight = self.leaky_relu(f_1 + f_2)
-        masked = torch.mul(weight, adj_mat).to_sparse()
-        attn = torch.sparse.softmax(masked, dim=2).to_dense()
+        weight = self.leaky_relu(f_1 + f_2)           # (heads, N, N)
+        adj_exp = adj_mat.unsqueeze(0)                 # (1, N, N)
+        # Dense masked softmax: scale logits by adj weight (same as original mul),
+        # then mask zero entries to -inf so they don't participate in softmax.
+        # Preserves exact semantics of the original sparse softmax for any adj values.
+        logits = weight * adj_exp
+        logits = logits.masked_fill(adj_exp == 0, float("-inf"))
+        attn = torch.softmax(logits, dim=2)
+        attn = torch.nan_to_num(attn, nan=0.0)         # isolated nodes → 0
         support = torch.matmul(attn, support)
         support = support.permute(1, 0, 2).reshape(-1, self.num_heads * self.out_features)
         if self.bias is not None:
@@ -294,6 +300,9 @@ class TemporalCausalHypergraph(nn.Module):
         self.norm_out = nn.LayerNorm(D)
         self.drop = nn.Dropout(dropout)
 
+        self._mask_TN: tuple[int, int] | None = None
+        self._mask_cache: torch.Tensor | None = None
+
     def forward(self, z_temp: torch.Tensor) -> torch.Tensor:
         # z_temp: (N, T, D)
         N, T, D = z_temp.shape
@@ -327,21 +336,17 @@ class TemporalCausalHypergraph(nn.Module):
         z_out = z_out.reshape(T, N, D).permute(1, 0, 2)     # (N, T, D)
         return z_out[:, -1, :]                               # h_causal: (N, D)
 
-    @staticmethod
-    def _build_causal_mask(T: int, N: int, device: torch.device) -> torch.Tensor:
-        """Upper-triangular block causal mask.
-
-        Rows and cols represent (T·N) time-stock nodes ordered
-        (t0·S0, …, t0·SN-1, t1·S0, …, tT-1·SN-1).
-        Entry (i, j) is set to -inf when node j belongs to a strictly
-        later timestep than node i, preventing future-data leakage.
-        """
+    def _build_causal_mask(self, T: int, N: int, device: torch.device) -> torch.Tensor:
+        if self._mask_TN == (T, N) and self._mask_cache is not None:
+            return self._mask_cache
         TN = T * N
         idx = torch.arange(TN, device=device)
-        t_idx = idx // N                                     # timestep per node
+        t_idx = idx // N
         future = t_idx.unsqueeze(1) < t_idx.unsqueeze(0)    # (TN, TN) bool
         mask = torch.zeros(TN, TN, device=device)
         mask[future] = float("-inf")
+        self._mask_TN = (T, N)
+        self._mask_cache = mask
         return mask
 
 
