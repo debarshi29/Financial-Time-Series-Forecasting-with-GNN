@@ -80,12 +80,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--test-start-date",  type=str, default="2025-01-01")
     p.add_argument("--test-end-date",    type=str, default="2026-12-31")
     # Training
-    p.add_argument("--epochs",         type=int,   default=80)
+    p.add_argument("--epochs",         type=int,   default=150)
     p.add_argument("--lr",             type=float, default=2e-4)
+    p.add_argument("--lr-min",         type=float, default=1e-5,
+                   help="Minimum LR floor at end of cosine decay (never reaches 0).")
+    p.add_argument("--lr-plateau-epochs", type=int, default=20,
+                   help="Epochs to hold LR flat at peak after warmup, before cosine decay.")
     p.add_argument("--weight-decay",   type=float, default=1e-4)
-    p.add_argument("--dropout",        type=float, default=0.2)
-    p.add_argument("--patience",       type=int,   default=15)
+    p.add_argument("--dropout",        type=float, default=0.25)
+    p.add_argument("--patience",       type=int,   default=20)
     p.add_argument("--seed",           type=int,   default=42)
+    p.add_argument("--resume",         type=str,   default=None,
+                   help="Path to a .dat checkpoint to resume training from.")
     # Model architecture — sized for Nifty500 universe (N≈350)
     p.add_argument("--in-features",      type=int, default=12,
                    help="Input feature dimension per stock per timestep.")
@@ -110,8 +116,8 @@ def parse_args() -> argparse.Namespace:
                    help="Number of attention heads in TCH's causal MHA. "
                         "Must evenly divide --embed-dim.")
     # Loss weights — IC-weighted for cross-sectional ranking
-    p.add_argument("--mse-weight",          type=float, default=0.4)
-    p.add_argument("--ic-weight",           type=float, default=0.8)
+    p.add_argument("--mse-weight",          type=float, default=0.3)
+    p.add_argument("--ic-weight",           type=float, default=1.2)
     p.add_argument("--dispersion-weight",   type=float, default=0.1)
     p.add_argument("--min-dispersion-ratio", type=float, default=0.3)
     p.add_argument("--max-dispersion-ratio", type=float, default=3.0)
@@ -408,12 +414,20 @@ def run_epoch(
     return {k: float(v) / steps for k, v in sums.items()}  # one GPU→CPU sync per metric
 
 
-def _make_lr_lambda(warmup_epochs: int, total_epochs: int):
+def _make_lr_lambda(warmup_epochs: int, plateau_epochs: int,
+                    total_epochs: int, lr_min_ratio: float = 0.0):
+    """3-phase schedule: linear warmup → flat plateau → cosine decay to lr_min_ratio."""
+    decay_start = warmup_epochs + plateau_epochs
+    decay_len   = max(1, total_epochs - decay_start)
+
     def _fn(epoch: int) -> float:
         if epoch < warmup_epochs:
-            return 0.1 + 0.9 * epoch / warmup_epochs
-        progress = (epoch - warmup_epochs) / max(1, total_epochs - warmup_epochs)
-        return 0.5 * (1.0 + math.cos(math.pi * progress))
+            return 0.1 + 0.9 * epoch / max(1, warmup_epochs)
+        if epoch < decay_start:
+            return 1.0
+        progress = min(1.0, (epoch - decay_start) / decay_len)
+        cos_val  = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return lr_min_ratio + (1.0 - lr_min_ratio) * cos_val
     return _fn
 
 
@@ -551,8 +565,13 @@ def main() -> None:
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
+    lr_min_ratio = args.lr_min / args.lr
     scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, lr_lambda=_make_lr_lambda(5, args.epochs)
+        optimizer,
+        lr_lambda=_make_lr_lambda(
+            args.ic_warmup_epochs, args.lr_plateau_epochs,
+            args.epochs, lr_min_ratio,
+        ),
     )
 
     best_test_ic   = -np.inf
@@ -561,7 +580,28 @@ def main() -> None:
     wait           = 0
     overfit_streak = 0
     stop_reason    = "max_epochs"
+    start_epoch    = 1
     best_path      = args.model_dir / f"{split.pre_data}_hybrid_best.dat"
+
+    if args.resume:
+        resume_path = Path(args.resume)
+        if not resume_path.exists():
+            raise FileNotFoundError(f"Resume checkpoint not found: {resume_path}")
+        ckpt = torch.load(resume_path, map_location=device, weights_only=False)
+        model.load_state_dict(ckpt["model"])
+        if "optimizer" in ckpt:
+            optimizer.load_state_dict(ckpt["optimizer"])
+        best_test_ic  = ckpt.get("test_ic",  -np.inf)
+        best_test_mse = ckpt.get("test_mse",  np.inf)
+        best_epoch    = ckpt.get("epoch",     0)
+        start_epoch   = best_epoch + 1
+        # Advance scheduler to the correct position
+        for _ in range(best_epoch):
+            scheduler.step()
+        logger.info(
+            f"Resumed from {resume_path.name} — "
+            f"epoch {best_epoch}, IC={best_test_ic:.4f}, continuing from epoch {start_epoch}"
+        )
 
     history: dict[str, list] = {k: [] for k in _CSV_FIELDS}
 
@@ -583,7 +623,7 @@ def main() -> None:
     logger.info("-" * 100)
 
     t0_total = time.time()
-    pbar = tqdm(range(1, args.epochs + 1), desc="Hybrid IC-ranked epochs", unit="epoch",
+    pbar = tqdm(range(start_epoch, args.epochs + 1), desc="Hybrid IC-ranked epochs", unit="epoch",
                 file=sys.stderr)
     for epoch in pbar:
         t0 = time.time()
@@ -669,6 +709,7 @@ def main() -> None:
             torch.save(
                 {
                     "model":        model.state_dict(),
+                    "optimizer":    optimizer.state_dict(),
                     "epoch":        epoch,
                     "test_ic":      best_test_ic,
                     "test_soft_ic": test_m["ic"],
