@@ -1,0 +1,11 @@
+2026-05-12 19:38:31  Device: cuda
+2026-05-12 19:38:31  Train:   2015-02-27.pkl -> 2023-12-29.pkl (2182 samples)
+2026-05-12 19:38:31  Val:     2024-01-01.pkl -> 2026-02-27.pkl (536 samples)  [used for checkpoint selection]
+2026-05-12 19:38:31  Args: {'data_dir': WindowsPath('C:/Users/HP/Documents/Financial Time Series Forecasting with GNN/THGNN/data/data_train_predict'), 'model_dir': WindowsPath('C:/Users/HP/Documents/Financial Time Series Forecasting with GNN/THGNN/data/model_saved'), 'train_start_date': '2015-01-01', 'train_end_date': '2023-12-31', 'test_start_date': '2024-01-01', 'test_end_date': '2026-02-28', 'holdout_start_date': None, 'holdout_end_date': None, 'epochs': 150, 'lr': 0.0002, 'lr_min': 1e-05, 'lr_plateau_epochs': 20, 'weight_decay': 0.0001, 'dropout': 0.25, 'patience': 20, 'seed': 42, 'resume': None, 'in_features': 12, 'embed_dim': 64, 'num_mage_layers': 1, 'num_moe_experts': 4, 'num_mha_heads': 2, 'gat_heads': 8, 'gat_out_features': 8, 'num_hyper_edges': 32, 'num_tch_hyper_edges': 32, 'num_tch_heads': 4, 'mse_weight': 0.4, 'ic_weight': 0.8, 'dispersion_weight': 0.1, 'min_dispersion_ratio': 0.3, 'max_dispersion_ratio': 3.0, 'return_scale': 0.02, 'target_horizon': 0, 'ic_warmup_epochs': 5, 'max_loss_ratio': 3.5, 'overfit_patience': 5, 'log_dir': None}
+2026-05-12 19:39:06  Label stats (train, first 50 samples) | mean=-0.00030  std=0.02603  min=-0.20000  max=0.21087  --return-scale=0.02  ratio(std/return_scale)=1.302
+2026-05-12 19:39:06  Hybrid model parameters: 179,325
+2026-05-12 19:39:26  CSV log  -> C:\Users\HP\Documents\Financial Time Series Forecasting with GNN\THGNN\data\plots\2023-12-29_mamba_moe_metrics.csv
+2026-05-12 19:39:26  Text log -> C:\Users\HP\Documents\Financial Time Series Forecasting with GNN\THGNN\data\plots\2023-12-29_mamba_moe_train.txt
+2026-05-12 19:39:26  ----------------------------------------------------------------------------------------------------
+2026-05-12 19:39:26    Ep        LR   tr_loss   tr_mse   tr_ic   tr_gn   te_loss   te_mse   te_ic  te_dir  ratio    secs  flag
+2026-05-12 19:39:26  ----------------------------------------------------------------------------------------------------

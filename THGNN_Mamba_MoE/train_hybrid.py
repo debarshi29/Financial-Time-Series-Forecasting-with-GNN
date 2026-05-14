@@ -1,5 +1,5 @@
 """
-Training script for the Cascaded-Parallel Hybrid THGNN × MaGNet model.
+Training script for the Cascaded-Parallel Hybrid THGNN x MaGNet Mamba+MoE model.
 
 Loss function: composite MSE + Spearman IC + dispersion penalty (from THGNN).
 Model:         HybridStockModel (MAGE → TCH || Pos/Neg GAT + GPH → Semantic Fusion).
@@ -71,7 +71,7 @@ class SplitIndices:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Train hybrid THGNN×MaGNet with MSE + IC + dispersion loss."
+        description="Train hybrid THGNN x MaGNet Mamba+MoE with MSE + IC + dispersion loss."
     )
     # Data / paths
     p.add_argument("--data-dir", type=Path, default=TRAIN_DATA_DIR)
@@ -504,10 +504,10 @@ def main() -> None:
 
     # ---- logging setup ----
     run_tag    = split.pre_data
-    log_path   = log_dir / f"{run_tag}_hybrid_train.txt"
-    csv_path   = log_dir / f"{run_tag}_hybrid_metrics.csv"
-    json_path  = log_dir / f"{run_tag}_hybrid_summary.json"
-    plot_path  = PLOT_DIR / f"{run_tag}_hybrid_loss_curve.png"
+    log_path   = log_dir / f"{run_tag}_mamba_moe_train.txt"
+    csv_path   = log_dir / f"{run_tag}_mamba_moe_metrics.csv"
+    json_path  = log_dir / f"{run_tag}_mamba_moe_summary.json"
+    plot_path  = PLOT_DIR / f"{run_tag}_mamba_moe_loss_curve.png"
 
     logger = _setup_logger(log_path)
 
@@ -629,7 +629,7 @@ def main() -> None:
     overfit_streak = 0
     stop_reason    = "max_epochs"
     start_epoch    = 1
-    best_path      = args.model_dir / f"{split.pre_data}_hybrid_best.dat"
+    best_path      = args.model_dir / f"{split.pre_data}_mamba_moe_best.dat"
 
     if args.resume:
         resume_path = Path(args.resume)
@@ -854,7 +854,7 @@ def main() -> None:
     ax.set_xlabel("Epoch"); ax.set_ylabel("Value")
     ax.set_title("Dir Accuracy & Loss Ratio"); ax.grid(True, alpha=0.3); ax.legend()
 
-    fig.suptitle(f"Hybrid THGNN×MaGNet — IC-Ranked  [{run_tag}]", fontsize=13)
+    fig.suptitle(f"Hybrid THGNN x MaGNet Mamba+MoE - IC-Ranked  [{run_tag}]", fontsize=13)
     plt.tight_layout()
     plt.savefig(plot_path, dpi=200)
     plt.close(fig)

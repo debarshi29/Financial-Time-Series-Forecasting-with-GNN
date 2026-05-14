@@ -1,0 +1,103 @@
+{
+  "checkpoint": "C:\\Users\\HP\\Documents\\Financial Time Series Forecasting with GNN\\THGNN\\data\\model_saved\\2023-12-29_hybrid_best.dat",
+  "start_date": "2024-01-01",
+  "end_date": "2026-02-27",
+  "n_days": 536,
+  "top_k": 5,
+  "exposure_note": "dollar-neutral: 0.5*(long_ret - short_ret)",
+  "longshort_gross": {
+    "total_return_pct": 241.586,
+    "ann_return_pct": 78.1659,
+    "volatility_ann_pct": 16.4718,
+    "sharpe": 3.5923,
+    "sortino": 6.1577,
+    "max_drawdown_pct": -10.1259,
+    "calmar": 7.7194,
+    "win_rate_pct": 58.7687
+  },
+  "turnover": {
+    "avg_daily_pct": 80.0,
+    "ann_turnover_x": 201.6
+  },
+  "cost_sensitivity": [
+    {
+      "cost_bps": 0,
+      "net_total_pct": 241.59,
+      "net_ann_pct": 78.17,
+      "net_sharpe": 3.5923,
+      "net_maxdd_pct": -10.13
+    },
+    {
+      "cost_bps": 5,
+      "net_total_pct": 175.77,
+      "net_ann_pct": 61.11,
+      "net_sharpe": 2.981,
+      "net_maxdd_pct": -10.69
+    },
+    {
+      "cost_bps": 10,
+      "net_total_pct": 122.61,
+      "net_ann_pct": 45.68,
+      "net_sharpe": 2.3692,
+      "net_maxdd_pct": -11.25
+    },
+    {
+      "cost_bps": 20,
+      "net_total_pct": 45.02,
+      "net_ann_pct": 19.1,
+      "net_sharpe": 1.1445,
+      "net_maxdd_pct": -15.08
+    }
+  ],
+  "long_only_gross": {
+    "total_return_pct": 519.0653,
+    "ann_return_pct": 135.632,
+    "sharpe": 2.8469,
+    "win_rate_pct": 57.8358
+  },
+  "ic": {
+    "ic_mean": 0.0397,
+    "ic_std": 0.087,
+    "ic_ir": 0.4565,
+    "ic_tstat": 10.5677,
+    "ic_hit_rate": 0.6679,
+    "n_days": 536
+  },
+  "quintile": {
+    "Q1": 34.5096,
+    "Q2": 20.6262,
+    "Q3": 18.8015,
+    "Q4": 13.5492,
+    "Q5": -8.5767
+  },
+  "q1_q5_spread_ann_pct": 43.0863,
+  "yearly": {
+    "2024": {
+      "n_days": 246,
+      "total_pct": 99.29,
+      "ann_pct": 102.67,
+      "sharpe": 4.1329,
+      "max_dd_pct": -7.74,
+      "win_rate": 57.32,
+      "mean_ic": 0.0391
+    },
+    "2025": {
+      "n_days": 249,
+      "total_pct": 52.59,
+      "ann_pct": 53.37,
+      "sharpe": 2.8935,
+      "max_dd_pct": -10.13,
+      "win_rate": 59.44,
+      "mean_ic": 0.043
+    },
+    "2026": {
+      "n_days": 41,
+      "total_pct": 12.33,
+      "ann_pct": 104.33,
+      "sharpe": 4.2113,
+      "max_dd_pct": -4.17,
+      "win_rate": 63.41,
+      "mean_ic": 0.0238
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "checkpoint": "C:\\Users\\HP\\Documents\\Financial Time Series Forecasting with GNN\\THGNN\\data\\model_saved\\2023-12-29_hybrid_best.dat",
+  "start_date": "2026-03-02",
+  "end_date": "2026-04-01",
+  "n_days": 20,
+  "top_k": 5,
+  "longshort": {
+    "total_return_pct": 22.4686,
+    "ann_return_pct": 1185.612,
+    "volatility_ann_pct": 22.0072,
+    "sharpe": 11.7741,
+    "sortino": 13.0609,
+    "max_drawdown_pct": -3.4474,
+    "calmar": 343.9116,
+    "win_rate_pct": 85.0
+  },
+  "long_only": {
+    "total_return_pct": -1.2908,
+    "ann_return_pct": -15.1007,
+    "sharpe": -0.2767,
+    "win_rate_pct": 45.0
+  },
+  "ic": {
+    "ic_mean": 0.0508,
+    "ic_std": 0.1277,
+    "ic_ir": 0.3978,
+    "ic_tstat": 1.7788,
+    "ic_hit_rate": 0.6,
+    "n_days": 20
+  },
+  "quintile": {
+    "Q1": -57.2788,
+    "Q2": -66.193,
+    "Q3": -88.9081,
+    "Q4": -85.6157,
+    "Q5": -113.879
+  },
+  "q1_q5_spread_ann_pct": 56.6002
+}

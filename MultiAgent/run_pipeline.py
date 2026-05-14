@@ -78,16 +78,32 @@ def main() -> None:
             no_news=args.no_news,
         )
     else:
-        from graph import run_graph
-        portfolio = run_graph(
-            date=args.date,
-            top_k=args.top_k,
-            alpha=args.alpha,
-            no_news=args.no_news,
-            max_news_headlines=args.max_headlines,
-            checkpoint_path=args.checkpoint,
-            device=args.device,
-        )
+        try:
+            from graph import run_graph
+        except ModuleNotFoundError as e:
+            if e.name != "langgraph":
+                raise
+            print("LangGraph is not installed; falling back to the plain orchestrator.")
+            from orchestrator import run
+            portfolio = run(
+                date=args.date,
+                top_k=args.top_k,
+                alpha=args.alpha,
+                max_news_headlines=args.max_headlines,
+                checkpoint_path=args.checkpoint,
+                device=args.device,
+                no_news=args.no_news,
+            )
+        else:
+            portfolio = run_graph(
+                date=args.date,
+                top_k=args.top_k,
+                alpha=args.alpha,
+                no_news=args.no_news,
+                max_news_headlines=args.max_headlines,
+                checkpoint_path=args.checkpoint,
+                device=args.device,
+            )
 
     display(portfolio, top_k=args.top_k)
 

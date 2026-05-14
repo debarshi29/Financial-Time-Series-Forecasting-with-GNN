@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import pickle
 import sys
+import pathlib
 from pathlib import Path
 
 import pandas as pd
@@ -67,10 +68,16 @@ def _find_pkl_for_date(date_str: str) -> Path:
 
 
 def _load_model(ckpt_path: Path, device: torch.device) -> HybridStockModel:
+    posix_path = pathlib.PosixPath
+    if sys.platform == "win32":
+        pathlib.PosixPath = pathlib.WindowsPath
     try:
-        ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
-    except TypeError:
-        ckpt = torch.load(ckpt_path, map_location=device)
+        try:
+            ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+        except TypeError:
+            ckpt = torch.load(ckpt_path, map_location=device)
+    finally:
+        pathlib.PosixPath = posix_path
 
     state_dict = ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt
     cfg = ckpt.get("config", {}) if isinstance(ckpt, dict) else {}
@@ -132,9 +139,9 @@ class GNNAgent:
         print(f"[GNNAgent] Using data: {pkl_path.name} for date={date_str}")
 
         sample = pickle.load(open(pkl_path, "rb"))
-        features = torch.tensor(sample["features"], dtype=torch.float32).to(self.device)
-        pos_adj  = torch.tensor(sample["pos_adj"],  dtype=torch.float32).to(self.device)
-        neg_adj  = torch.tensor(sample["neg_adj"],  dtype=torch.float32).to(self.device)
+        features = torch.as_tensor(sample["features"], dtype=torch.float32).to(self.device)
+        pos_adj  = torch.as_tensor(sample["pos_adj"],  dtype=torch.float32).to(self.device)
+        neg_adj  = torch.as_tensor(sample["neg_adj"],  dtype=torch.float32).to(self.device)
         mask     = sample.get("mask", [True] * features.shape[0])
 
         if isinstance(mask, torch.Tensor):

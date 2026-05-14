@@ -97,7 +97,7 @@ def score_tickers(
         print(f"  [NewsAgent] {i+1}/{len(tickers)} {ticker}", end=" ", flush=True)
         result = score_ticker(ticker, max_headlines, cache_max_age_s, device)
         results[ticker] = result
-        print(f"→ score={result['sentiment_score']:+.3f}  n={result['news_count']}")
+        print(f"-> score={result['sentiment_score']:+.3f}  n={result['news_count']}")
         if delay_s > 0 and i < len(tickers) - 1:
             time.sleep(delay_s)
     return results

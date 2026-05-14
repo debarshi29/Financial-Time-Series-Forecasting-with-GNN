@@ -55,12 +55,12 @@ def run(
     print(f"\n[Step 1/3] GNN Prediction Agent")
     agent = GNNAgent(checkpoint_path=checkpoint_path, device=device)
     gnn_signals = agent.predict(date)
-    print(f"  → {len(gnn_signals)} stocks with predictions")
+    print(f"  -> {len(gnn_signals)} stocks with predictions")
 
     # --- Agent 2: News sentiment ---
     tickers = list(gnn_signals.keys())
     if no_news:
-        print(f"\n[Step 2/3] News Sentiment Agent  [SKIPPED — no_news=True]")
+        print(f"\n[Step 2/3] News Sentiment Agent  [SKIPPED - no_news=True]")
         news_signals = {}
     else:
         print(f"\n[Step 2/3] News Sentiment Agent  ({len(tickers)} tickers)")
@@ -70,7 +70,7 @@ def run(
             device=device,
         )
         covered = sum(1 for v in news_signals.values() if v["news_count"] > 0)
-        print(f"  → News found for {covered}/{len(tickers)} tickers")
+        print(f"  -> News found for {covered}/{len(tickers)} tickers")
 
     # --- Agent 3: Portfolio construction ---
     print(f"\n[Step 3/3] Portfolio Constructor Agent")

@@ -1,0 +1,45 @@
+======================================================================
+HYBRID THGNN × MaGNet  BACKTEST REPORT
+======================================================================
+
+Generated:   2026-05-12 12:38:34
+Checkpoint:  2023-12-29_hybrid_best.dat
+Period:      2026-03-02 -> 2026-04-01  (20 days)
+Portfolio:   top-5 long / bottom-5 short (equal weight)
+
+LONG-SHORT PORTFOLIO
+----------------------------------------------------------------------
+Total Return (%):                 22.4686
+Annualised Return (%):          1185.6120
+Annualised Volatility (%):        22.0072
+Sharpe Ratio (ann):               11.7741
+Sortino Ratio (ann):              13.0609
+Max Drawdown (%):                 -3.4474
+Calmar Ratio:                    343.9116
+Daily Win Rate (%):               85.0000
+
+LONG-ONLY PORTFOLIO (top-K)
+----------------------------------------------------------------------
+Total Return (%):                 -1.2908
+Annualised Return (%):           -15.1007
+Sharpe Ratio (ann):               -0.2767
+Daily Win Rate (%):               45.0000
+
+INFORMATION COEFFICIENT
+----------------------------------------------------------------------
+Mean IC:                           0.0508
+IC Std Dev:                        0.1277
+ICIR  (mean/std):                  0.3978
+IC t-stat:                         1.7788
+IC Hit Rate (%):                  60.0000
+
+QUINTILE SPREAD
+----------------------------------------------------------------------
+Q1–Q5 daily spread:                0.2246 %
+Q1–Q5 ann. spread:                56.6002 %
+  Q1 ann. return:                   -57.28 %
+  Q2 ann. return:                   -66.19 %
+  Q3 ann. return:                   -88.91 %
+  Q4 ann. return:                   -85.62 %
+  Q5 ann. return:                  -113.88 %
+======================================================================

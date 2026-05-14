@@ -1,0 +1,68 @@
+======================================================================
+HYBRID THGNN x MaGNet  BACKTEST REPORT
+======================================================================
+
+Generated:   2026-05-12 15:40:56
+Checkpoint:  2023-12-29_hybrid_best.dat
+Period:      2024-01-01 -> 2026-02-27  (536 days)
+Portfolio:   top-5 long / bottom-5 short (equal weight, dollar-neutral)
+Note:        Returns on equity basis (0.5x long + 0.5x short, 100% gross).
+
+LONG-SHORT PORTFOLIO  (gross, 0 transaction cost)
+----------------------------------------------------------------------
+Total Return (%):                241.5860
+Annualised Return (%):            78.1659
+Annualised Volatility (%):        16.4718
+Sharpe Ratio (ann):                3.5923
+Sortino Ratio (ann):               6.1577
+Max Drawdown (%):                -10.1259
+Calmar Ratio:                      7.7194
+Daily Win Rate (%):               58.7687
+
+TURNOVER
+----------------------------------------------------------------------
+Avg daily turnover (%):             80.00
+Annualised turnover (x):           201.60
+
+TRANSACTION COST SENSITIVITY  (net of costs, dollar-neutral)
+----------------------------------------------------------------------
+Cost (bps)    Net Total%   Net Ann%  Net Sharpe   Max DD%
+----------------------------------------------------------------------
+0                 241.59      78.17      3.5923    -10.13
+5                 175.77      61.11      2.9810    -10.69
+10                122.61      45.68      2.3692    -11.25
+20                 45.02      19.10      1.1445    -15.08
+
+LONG-ONLY PORTFOLIO  (top-K, gross)
+----------------------------------------------------------------------
+Total Return (%):                519.0653
+Annualised Return (%):           135.6320
+Sharpe Ratio (ann):                2.8469
+Daily Win Rate (%):               57.8358
+
+INFORMATION COEFFICIENT  (friction-independent)
+----------------------------------------------------------------------
+Mean IC:                           0.0397
+IC Std Dev:                        0.0870
+ICIR  (mean/std):                  0.4565
+IC t-stat:                        10.5677
+IC Hit Rate (%):                  66.7910
+
+QUINTILE SPREAD  (friction-independent)
+----------------------------------------------------------------------
+Q1-Q5 daily spread:                0.1710 %
+Q1-Q5 ann. spread:                43.0863 %
+  Q1 ann. return:                    34.51 %
+  Q2 ann. return:                    20.63 %
+  Q3 ann. return:                    18.80 %
+  Q4 ann. return:                    13.55 %
+  Q5 ann. return:                    -8.58 %
+
+YEARLY BREAKDOWN  (gross, dollar-neutral)
+----------------------------------------------------------------------
+Year    Days   Total%     Ann%   Sharpe   MaxDD%  WinRate%   MeanIC
+----------------------------------------------------------------------
+2024     246    99.29   102.67   4.1329    -7.74     57.32   0.0391
+2025     249    52.59    53.37   2.8935   -10.13     59.44   0.0430
+2026      41    12.33   104.33   4.2113    -4.17     63.41   0.0238
+======================================================================

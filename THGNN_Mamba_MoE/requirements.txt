@@ -1,0 +1,12 @@
+# Core dependencies (same as THGNN)
+torch>=2.0.0
+numpy
+pandas
+matplotlib
+tqdm
+scikit-learn
+
+# Optional: install mamba-ssm to use the official Mamba SSM implementation.
+# If unavailable, model/hybrid_model.py uses a pure-PyTorch selective SSM fallback.
+# mamba-ssm generally requires Linux/CUDA and a compatible GPU driver.
+# mamba-ssm>=1.2.0
