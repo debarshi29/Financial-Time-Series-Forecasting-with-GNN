@@ -3,6 +3,9 @@
 # (torch should already be installed from THGNN_MaGNet/pyproject.toml)
 
 langgraph>=0.2.0
+langchain-core>=0.2.0
+langchain-groq>=0.1.0       # Groq free tier: set GROQ_API_KEY (console.groq.com)
+langchain-google-genai>=1.0 # Gemini free tier: set GOOGLE_API_KEY (aistudio.google.com)
 transformers>=4.40.0
 yfinance>=0.2.40
 scipy>=1.13.0

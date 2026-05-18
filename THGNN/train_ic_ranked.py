@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import json
+import logging
 import math
 import os
+import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -62,25 +67,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ic-weight", type=float, default=0.5)
     parser.add_argument("--dispersion-weight", type=float, default=0.3)
     parser.add_argument("--min-dispersion-ratio", type=float, default=0.5,
-                        help="Penalize pred_std < min_dispersion_ratio * target_std to prevent mean-collapse. "
-                             "Previous default 0.2 never triggered (spread was 0.26), so the model hedged "
-                             "toward near-zero predictions with no gradient pressure to spread.")
+                        help="Penalize pred_std < min_dispersion_ratio * target_std to prevent mean-collapse.")
     parser.add_argument("--max-dispersion-ratio", type=float, default=2.0,
                         help="Penalize pred_std > max_dispersion_ratio * target_std to prevent over-spreading.")
     parser.add_argument("--return-scale", type=float, default=0.023,
-                        help="Typical daily return std used to normalize MSE. "
-                             "MSE is divided by return_scale**2 so it is O(1) and scale-consistent "
-                             "across all batches and splits. Default 0.023 matches Nifty500 (354-stock) "
-                             "cross-sectional return std (median ~2.3%% per day in decimal form). "
-                             "Set to ~1.0 if returns are in percentage points.")
+                        help="Typical daily return std used to normalize MSE.")
     parser.add_argument("--target-horizon", type=int, default=0,
-                        help="Which label horizon to train on (0=next-day, 1, 2). "
-                             "Avoids conflicting gradients from negatively correlated horizons.")
+                        help="Which label horizon to train on (0=next-day, 1, 2).")
     parser.add_argument("--patience", type=int, default=10)
     parser.add_argument("--ic-warmup-epochs", type=int, default=3,
-                        help="Ramp IC loss weight from 0 to --ic-weight over this many epochs. "
-                             "Shorter warmup so IC gradient arrives before MSE drives predictions to zero.")
+                        help="Ramp IC loss weight from 0 to --ic-weight over this many epochs.")
     parser.add_argument("--seed", type=int, default=42)
+    # Divergence guard (mirrors train_hybrid.py)
+    parser.add_argument("--max-loss-ratio", type=float, default=3.5,
+                        help="Stop if test_loss / train_loss exceeds this for --overfit-patience "
+                             "consecutive epochs (divergence guard).")
+    parser.add_argument("--overfit-patience", type=int, default=5,
+                        help="Consecutive epochs of loss-ratio violation before divergence stop.")
+    # Logging
+    parser.add_argument("--log-dir", type=Path, default=None,
+                        help="Directory for CSV/log/JSON artefacts. Defaults to --plot-dir.")
     return parser.parse_args()
 
 
@@ -97,22 +103,11 @@ def _index_for_date(file_dates: list[pd.Timestamp], date_str: str) -> int:
     for idx, d in enumerate(file_dates):
         if d >= dt:
             return idx
-    # Requested date is beyond all available data — return last index so the
-    # caller can clamp it. A hard error here would break valid "train up to
-    # latest available data" usage patterns; the caller validates ordering.
     return len(file_dates) - 1
 
 
 def _exclusive_end_index_for_date(file_dates: list[pd.Timestamp], date_str: str) -> int:
-    """Return exclusive-end index: number of files with date <= date_str.
-
-    Using first-file->=date + 1 for end boundaries fails when the end date
-    falls on a weekend/holiday — both the end date and the next start date
-    resolve to the same trading day, causing val_end > test_start.
-    This function walks forward and stops at the first file strictly after
-    date_str, so weekend/holiday end dates land on the last trading day before
-    the boundary rather than the first one after it.
-    """
+    """Return exclusive-end index: number of files with date <= date_str."""
     dt = pd.to_datetime(date_str).normalize()
     for idx, d in enumerate(file_dates):
         if d > dt:
@@ -180,14 +175,7 @@ def _ensure_2d(x: torch.Tensor) -> torch.Tensor:
 
 
 def _soft_rank(x: torch.Tensor, temperature: float = 0.05) -> torch.Tensor:
-    """Differentiable approximation of rank via pairwise sigmoid comparisons.
-
-    For each element x_i, its soft rank ≈ 1 + Σ_{j} sigmoid((x_i - x_j) / temperature).
-    As temperature → 0 this converges to true rank; larger temperature smooths gradients.
-    τ=0.05 (vs. original 0.01) gives smoother gradients — less risk of vanishing signal
-    when predictions are already approximately rank-ordered.
-    O(N²) in the number of stocks — fine for N ≈ 354.
-    """
+    """Differentiable approximation of rank via pairwise sigmoid comparisons."""
     diff = x.unsqueeze(0) - x.unsqueeze(1)  # (N, N): diff[i, j] = x[i] - x[j]
     return torch.sigmoid(diff / temperature).sum(dim=1)  # (N,)
 
@@ -198,20 +186,13 @@ def cross_sectional_ic(
     eps: float = 1e-8,
     temperature: float = 0.05,
 ) -> torch.Tensor:
-    """Differentiable cross-sectional IC using soft Spearman rank correlation.
-
-    Spearman IC = Pearson correlation of ranks. Using differentiable soft ranks
-    gives a proper ranking-based gradient signal that is robust to outlier returns,
-    unlike raw Pearson IC which can be dominated by a single large-move stock.
-    Target ranks are detached — gradients only flow through predictions.
-    """
+    """Differentiable cross-sectional IC using soft Spearman rank correlation."""
     pred_flat = pred.reshape(-1)
     target_flat = target.reshape(-1)
     if pred_flat.numel() < 2:
         return torch.tensor(0.0, device=pred.device)
 
     pred_rank = _soft_rank(pred_flat, temperature)
-    # Detach target: its ranks are fixed labels, not a learnable quantity.
     target_rank = _soft_rank(target_flat.detach(), temperature).detach()
 
     pred_r = pred_rank - pred_rank.mean()
@@ -223,12 +204,7 @@ def cross_sectional_ic(
 
 
 def _exact_ranks(x: torch.Tensor) -> torch.Tensor:
-    """Return 1..N ranks for a 1D tensor.
-
-    This is used only for evaluation / checkpoint selection, not for gradients.
-    Financial return labels are effectively continuous, so simple ordinal ranks
-    are sufficient here.
-    """
+    """Return 1..N ranks for a 1D tensor (evaluation only, not for gradients)."""
     x_flat = x.reshape(-1)
     order = torch.argsort(x_flat)
     ranks = torch.empty_like(x_flat, dtype=torch.float32)
@@ -271,11 +247,6 @@ def composite_loss(
     pred = _ensure_2d(pred)
     target = _ensure_2d(target)
 
-    # Cross-sectional demeaning: remove the market factor before computing MSE.
-    # Raw daily returns are dominated by the market move (e.g. Nifty up 1.5%
-    # → all stocks roughly +1–2%). MSE on raw returns rewards predicting market
-    # direction, not relative ranking. Demeaning isolates the idiosyncratic
-    # component so gradients point toward cross-sectional outperformance.
     pred_flat = pred.reshape(-1)
     target_flat = target.reshape(-1)
     pred_cs = pred_flat - pred_flat.mean()
@@ -285,17 +256,7 @@ def composite_loss(
     ic_loss = 1.0 - soft_corr
 
     pred_std = pred_flat.std(unbiased=False).clamp(min=1e-8)
-    # Floor target_std at return_scale × 0.1 rather than 1e-8.
-    # On days where all stocks move in lockstep (low cross-sectional dispersion),
-    # target_std → 0 and spread_ratio = pred_std / target_std → ∞, spiking the
-    # dispersion penalty to thousands and dominating the total loss.
-    # A floor of return_scale × 0.1 caps spread_ratio at ~100 in the worst case
-    # while having no effect on normal batches where target_std ≫ this floor.
     target_std = target_flat.std(unbiased=False).detach().clamp(min=return_scale * 0.1)
-    # Dimensionless spread ratio penalty: O(1) and independent of return scale.
-    # Raw std penalty (previous) was O(0.01) — negligible vs O(1) MSE/IC terms.
-    # Ratio form also produces a strong gradient when pred_std → 0 (collapse),
-    # since ∂ratio/∂pred ∝ 1/pred_std, which is exactly when correction is needed.
     spread_ratio = pred_std / target_std
     dispersion_penalty = F.relu(min_dispersion_ratio - spread_ratio) + F.relu(spread_ratio - max_dispersion_ratio)
 
@@ -308,14 +269,15 @@ def composite_loss(
         + ic_weight * ic_loss
         + dispersion_weight * dispersion_penalty
     )
+    # Return GPU tensors — caller accumulates on GPU and syncs once per epoch
     metrics = {
-        "mse": float(mse.detach().cpu().item()),
-        "ic": float(soft_corr.detach().cpu().item()),
-        "rank_ic": float(exact_ic.detach().cpu().item()),
-        "pred_std": float(pred_std.detach().cpu().item()),
-        "target_std": float(target_std.detach().cpu().item()),
-        "disp_pen": float(dispersion_penalty.detach().cpu().item()),
-        "dir_acc": float(dir_acc.cpu().item()),
+        "mse":        mse.detach(),
+        "ic":         soft_corr.detach(),
+        "rank_ic":    exact_ic,
+        "pred_std":   pred_std.detach(),
+        "target_std": target_std.detach(),
+        "disp_pen":   dispersion_penalty.detach(),
+        "dir_acc":    dir_acc,
     }
     return loss, metrics
 
@@ -329,29 +291,21 @@ def run_epoch(
     *,
     ic_weight_override: float | None = None,
     temperature: float = 0.05,
-    return_scale: float = 0.01,
+    return_scale: float = 0.023,
 ) -> dict[str, float]:
     training = optimizer is not None
     model.train(mode=training)
 
-    sums = {
-        "loss": 0.0,
-        "mse": 0.0,
-        "ic": 0.0,
-        "rank_ic": 0.0,
-        "pred_std": 0.0,
-        "target_std": 0.0,
-        "disp_pen": 0.0,
-        "dir_acc": 0.0,
-    }
+    sums = {k: 0.0 for k in (
+        "loss", "mse", "ic", "rank_ic",
+        "pred_std", "target_std", "disp_pen", "dir_acc", "grad_norm",
+    )}
     steps = 0
 
     for batch in loader:
         sample_list = batch if isinstance(batch, list) else [batch]
         for data in sample_list:
             pos_adj, neg_adj, features, labels, mask = extract_data(data, str(device))
-            # Use a single horizon to avoid conflicting IC gradients across
-            # negatively-correlated label horizons (e.g. corr(h0,h2) = -0.24).
             if labels.dim() > 1 and labels.shape[-1] > 1:
                 labels = labels[:, args.target_horizon]
             mask_t = _mask_to_tensor(mask, len(labels), device)
@@ -363,9 +317,6 @@ def run_epoch(
             target = labels[mask_t]
             if pred.numel() == 0 or target.numel() == 0:
                 continue
-            # Clamp to ±10 × return_scale (e.g. ±20% for return_scale=0.02).
-            # Prevents a few out-of-distribution batches on the test set from
-            # producing pred_std >> return_scale and spiking MSE/return_scale².
             pred = pred.clamp(-10.0 * return_scale, 10.0 * return_scale)
 
             effective_ic_weight = args.ic_weight if ic_weight_override is None else ic_weight_override
@@ -384,26 +335,24 @@ def run_epoch(
             if training:
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
+                sums["grad_norm"] += grad_norm  # GPU tensor — sync deferred to epoch end
+            else:
+                sums["grad_norm"] += 0.0
 
-            sums["loss"] += float(loss.detach().cpu().item())
-            for key in ["mse", "ic", "rank_ic", "pred_std", "target_std", "disp_pen", "dir_acc"]:
+            sums["loss"] += loss.detach()
+            for key in ("mse", "ic", "rank_ic", "pred_std", "target_std", "disp_pen", "dir_acc"):
                 sums[key] += metrics[key]
             steps += 1
 
     if steps == 0:
         return {k: 0.0 for k in sums}
-    return {k: v / steps for k, v in sums.items()}
+    return {k: float(v) / steps for k, v in sums.items()}  # one GPU→CPU sync per metric
 
 
 def _make_lr_lambda(warmup_epochs: int, total_epochs: int):
-    """Linear warmup (0.1× → 1×) then cosine annealing.
-
-    Replaces SequentialLR + LinearLR + CosineAnnealingLR with a single
-    LambdaLR so PyTorch does not emit the deprecated-epoch-parameter warning
-    that SequentialLR triggers by passing `epoch` to its sub-schedulers.
-    """
+    """Linear warmup (0.1× → 1×) then cosine annealing."""
     def _fn(epoch: int) -> float:
         if epoch < warmup_epochs:
             return 0.1 + 0.9 * epoch / warmup_epochs
@@ -412,29 +361,64 @@ def _make_lr_lambda(warmup_epochs: int, total_epochs: int):
     return _fn
 
 
+_CSV_FIELDS = [
+    "epoch", "lr",
+    "train_loss", "train_mse", "train_ic", "train_rank_ic",
+    "train_dir_acc", "train_pred_std", "train_target_std", "train_disp_pen", "train_grad_norm",
+    "test_loss", "test_mse", "test_ic", "test_rank_ic",
+    "test_dir_acc", "test_pred_std", "test_target_std", "test_disp_pen",
+    "loss_ratio", "elapsed_s",
+]
+
+
+def _setup_logger(log_path: Path) -> logging.Logger:
+    logger = logging.getLogger("thgnn_train")
+    logger.setLevel(logging.DEBUG)
+    logger.handlers.clear()
+    fmt = logging.Formatter("%(asctime)s  %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    fh = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    fh.setFormatter(fmt)
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setFormatter(fmt)
+    logger.addHandler(fh)
+    logger.addHandler(sh)
+    return logger
+
+
 def main() -> None:
     args = parse_args()
     set_seed(args.seed)
     args.model_dir.mkdir(parents=True, exist_ok=True)
     PLOT_DIR.mkdir(parents=True, exist_ok=True)
 
+    log_dir = args.log_dir if args.log_dir is not None else PLOT_DIR
+    log_dir.mkdir(parents=True, exist_ok=True)
+
     files = sorted([p.name for p in args.data_dir.glob("*.pkl")])
     if not files:
         raise RuntimeError(f"No .pkl files found in {args.data_dir}")
     split = compute_split_indices(files, args)
 
+    run_tag      = split.pre_data
+    log_path     = log_dir / f"{run_tag}_thgnn_train.txt"
+    csv_path     = log_dir / f"{run_tag}_thgnn_metrics.csv"
+    json_path    = log_dir / f"{run_tag}_thgnn_summary.json"
+
+    logger = _setup_logger(log_path)
+
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
-    print(
+    logger.info(f"Device: {device}")
+    logger.info(
         f"Train: {files[split.train_start]} -> {files[split.train_end_exclusive - 1]} "
         f"({split.train_end_exclusive - split.train_start} samples)"
     )
-    print(
+    logger.info(
         f"Test:  {files[split.test_start]} -> {files[split.test_end_exclusive - 1]} "
-        f"({split.test_end_exclusive - split.test_start} samples)"
+        f"({split.test_end_exclusive - split.test_start} samples)  [used for checkpoint selection]"
     )
-    print(f"Checkpoint pre_data: {split.pre_data}")
+    logger.info(f"Checkpoint pre_data: {run_tag}")
+    logger.info(f"Args: {vars(args)}")
 
     train_ds = AllGraphDataSampler(
         base_dir=str(args.data_dir),
@@ -456,23 +440,21 @@ def main() -> None:
     train_loader = DataLoader(train_ds, batch_size=1, pin_memory=pin, collate_fn=lambda x: x)
     test_loader = DataLoader(test_ds, batch_size=1, pin_memory=pin, collate_fn=lambda x: x)
 
-    target_dim = 1  # single horizon prediction
-
     model = StockHeteGAT(
         in_features=args.in_features,
         hidden_dim=args.hidden_dim,
         num_heads=args.num_heads,
         num_layers=args.num_layers,
         out_features=args.out_features,
-        predictor_out_dim=target_dim,
+        predictor_out_dim=1,
         predictor_activation=None,
         dropout=args.dropout,
     ).to(device)
 
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.info(f"THGNN model parameters: {n_params:,}")
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    # LR warmup: 2 epochs so full LR arrives before IC warmup (3 epochs) completes.
-    # Previously 5 epochs caused LR and IC to ramp simultaneously, leaving the model
-    # with weak signals on both axes during the critical early phase.
     warmup_epochs = 2
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lr_lambda=_make_lr_lambda(warmup_epochs, args.epochs)
@@ -482,37 +464,104 @@ def main() -> None:
     best_test_mse = np.inf
     best_epoch = -1
     wait = 0
-    best_path = args.model_dir / f"{split.pre_data}_icrank_best.dat"
-    history = {"epoch": [], "train_loss": [], "test_loss": []}
+    overfit_streak = 0
+    stop_reason = "max_epochs"
+    best_path = args.model_dir / f"{run_tag}_icrank_best.dat"
+    history: dict[str, list] = {k: [] for k in _CSV_FIELDS}
 
-    pbar = tqdm(range(1, args.epochs + 1), desc="IC-ranked epochs", unit="epoch")
+    csv_file = open(csv_path, "w", newline="", encoding="utf-8")
+    csv_writer = csv.DictWriter(csv_file, fieldnames=_CSV_FIELDS)
+    csv_writer.writeheader()
+    csv_file.flush()
+
+    logger.info(f"CSV log  -> {csv_path}")
+    logger.info(f"Text log -> {log_path}")
+    logger.info("-" * 100)
+    logger.info(
+        f"{'Ep':>4}  {'LR':>8}  "
+        f"{'tr_loss':>8} {'tr_mse':>8} {'tr_ic':>7} {'tr_gn':>7}  "
+        f"{'te_loss':>8} {'te_mse':>8} {'te_ic':>7} {'te_dir':>7} {'ratio':>6}  "
+        f"{'secs':>6}  flag"
+    )
+    logger.info("-" * 100)
+
+    t0_total = time.time()
+    pbar = tqdm(range(1, args.epochs + 1), desc="IC-ranked epochs", unit="epoch", file=sys.stderr)
     for epoch in pbar:
-        # Ramp IC weight from 0 → target over ic_warmup_epochs to avoid noisy
-        # IC gradients dominating MSE fitting in early epochs.
+        t0 = time.time()
         ic_ramp = min(1.0, epoch / max(1, args.ic_warmup_epochs))
         current_ic_weight = args.ic_weight * ic_ramp
-
-        # Anneal soft-rank temperature: start high (smooth gradients when predictions
-        # are far apart) and decay toward 0.02 (sharper rank signal near convergence).
         temperature = max(0.02, 0.2 * (0.95 ** epoch))
+        current_lr = optimizer.param_groups[0]["lr"]
 
-        # Use the same IC weight, temperature, and return_scale for both splits
-        # so the loss curves are directly comparable across epochs in the plot.
-        train_metrics = run_epoch(train_loader, model, device, optimizer, args, ic_weight_override=current_ic_weight, temperature=temperature, return_scale=args.return_scale)
-        test_metrics = run_epoch(test_loader, model, device, None, args, ic_weight_override=current_ic_weight, temperature=temperature, return_scale=args.return_scale)
+        train_metrics = run_epoch(
+            train_loader, model, device, optimizer, args,
+            ic_weight_override=current_ic_weight,
+            temperature=temperature,
+            return_scale=args.return_scale,
+        )
+        test_metrics = run_epoch(
+            test_loader, model, device, None, args,
+            ic_weight_override=current_ic_weight,
+            temperature=temperature,
+            return_scale=args.return_scale,
+        )
         scheduler.step()
 
+        elapsed = time.time() - t0
+        loss_ratio = test_metrics["loss"] / max(train_metrics["loss"], 1e-8)
+
         pbar.set_postfix(
-            train_mse=f"{train_metrics['mse']:.6f}",
-            test_mse=f"{test_metrics['mse']:.6f}",
-            test_ic=f"{test_metrics['rank_ic']:.4f}",
-            test_soft_ic=f"{test_metrics['ic']:.4f}",
-            test_dir=f"{test_metrics['dir_acc']:.3f}",
-            spread=f"{(test_metrics['pred_std'] / max(test_metrics['target_std'], 1e-8)):.3f}",
+            tr_loss=f"{train_metrics['loss']:.4f}",
+            te_loss=f"{test_metrics['loss']:.4f}",
+            te_ic=f"{test_metrics['rank_ic']:.4f}",
+            te_dir=f"{test_metrics['dir_acc']:.3f}",
+            ratio=f"{loss_ratio:.2f}",
         )
-        history["epoch"].append(epoch)
-        history["train_loss"].append(train_metrics["loss"])
-        history["test_loss"].append(test_metrics["loss"])
+
+        row = {
+            "epoch": epoch, "lr": current_lr,
+            "train_loss":      train_metrics["loss"],
+            "train_mse":       train_metrics["mse"],
+            "train_ic":        train_metrics["ic"],
+            "train_rank_ic":   train_metrics["rank_ic"],
+            "train_dir_acc":   train_metrics["dir_acc"],
+            "train_pred_std":  train_metrics["pred_std"],
+            "train_target_std":train_metrics["target_std"],
+            "train_disp_pen":  train_metrics["disp_pen"],
+            "train_grad_norm": train_metrics["grad_norm"],
+            "test_loss":       test_metrics["loss"],
+            "test_mse":        test_metrics["mse"],
+            "test_ic":         test_metrics["ic"],
+            "test_rank_ic":    test_metrics["rank_ic"],
+            "test_dir_acc":    test_metrics["dir_acc"],
+            "test_pred_std":   test_metrics["pred_std"],
+            "test_target_std": test_metrics["target_std"],
+            "test_disp_pen":   test_metrics["disp_pen"],
+            "loss_ratio":      loss_ratio,
+            "elapsed_s":       round(elapsed, 1),
+        }
+        csv_writer.writerow({k: f"{v:.6g}" if isinstance(v, float) else v for k, v in row.items()})
+        csv_file.flush()
+        for k, v in row.items():
+            history[k].append(v)
+
+        # ---- divergence guard ----
+        overfit_flag = ""
+        if loss_ratio > args.max_loss_ratio:
+            overfit_streak += 1
+            overfit_flag = f"[OVERFIT x{overfit_streak}]"
+        else:
+            overfit_streak = 0
+
+        logger.info(
+            f"{epoch:>4}  {current_lr:>8.2e}  "
+            f"{train_metrics['loss']:>8.4f} {train_metrics['mse']:>8.4f} "
+            f"{train_metrics['rank_ic']:>7.4f} {train_metrics['grad_norm']:>7.3f}  "
+            f"{test_metrics['loss']:>8.4f} {test_metrics['mse']:>8.4f} "
+            f"{test_metrics['rank_ic']:>7.4f} {test_metrics['dir_acc']:>7.4f} "
+            f"{loss_ratio:>6.2f}  {elapsed:>6.1f}s  {overfit_flag}"
+        )
 
         improved = (test_metrics["rank_ic"] > best_test_ic) or (
             np.isclose(test_metrics["rank_ic"], best_test_ic) and test_metrics["mse"] < best_test_mse
@@ -534,46 +583,132 @@ def main() -> None:
                 },
                 best_path,
             )
+            logger.info(f"  => Checkpoint saved (rank_ic={best_test_ic:.4f})")
         else:
             wait += 1
             if wait >= args.patience:
-                print(f"Early stopping at epoch {epoch} (patience={args.patience}).")
+                stop_reason = f"ic_patience_{args.patience}"
+                logger.info(f"Early stopping: IC patience={args.patience} exhausted at epoch {epoch}.")
                 break
+
+        if overfit_streak >= args.overfit_patience:
+            stop_reason = f"divergence_guard_{args.overfit_patience}"
+            logger.info(
+                f"Divergence guard triggered at epoch {epoch}: "
+                f"test/train ratio {loss_ratio:.2f} > {args.max_loss_ratio} "
+                f"for {args.overfit_patience} consecutive epochs."
+            )
+            break
+
+    csv_file.close()
 
     best_checkpoint = torch.load(best_path, map_location=device, weights_only=False)
     model.load_state_dict(best_checkpoint["model"])
     final_train_metrics = run_epoch(train_loader, model, device, None, args, return_scale=args.return_scale)
     final_test_metrics = run_epoch(test_loader, model, device, None, args, return_scale=args.return_scale)
 
-    fig = plt.figure(figsize=(10, 6))
-    plt.plot(history["epoch"], history["train_loss"], label="Train Loss", linewidth=2)
-    plt.plot(history["epoch"], history["test_loss"], label="Test Loss", linewidth=2)
-    plt.xlabel("Epoch")
-    plt.ylabel("Composite Loss")
-    plt.title("IC-Ranked Training/Test Loss")
-    plt.grid(True, alpha=0.3)
-    plt.legend()
+    # ---- Individual plots (one image per metric panel) ----
+    epochs_arr = history["epoch"]
+
+    # Plot 1: Composite Loss
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.plot(epochs_arr, history["train_loss"], label="Train Loss", linewidth=2)
+    ax.plot(epochs_arr, history["test_loss"], label="Test Loss", linewidth=2)
+    if best_epoch > 0:
+        ax.axvline(best_epoch, color="green", linestyle="--", alpha=0.7,
+                   label=f"Best epoch {best_epoch}")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Composite Loss")
+    ax.set_title(f"THGNN — Composite Loss  [{run_tag}]")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
     plt.tight_layout()
-    loss_plot_path = PLOT_DIR / f"{split.pre_data}_icrank_loss_curve.png"
+    loss_plot_path = PLOT_DIR / f"{run_tag}_thgnn_loss_curve.png"
     plt.savefig(loss_plot_path, dpi=200)
     plt.close(fig)
 
-    print("\nTraining complete.")
-    print(f"Best epoch: {best_epoch}")
-    print(f"Best test IC: {best_test_ic:.4f}")
-    print(f"Best test MSE: {best_test_mse:.6f}")
-    print(f"Saved best checkpoint: {best_path}")
-    print(
-        "Final metrics from best checkpoint | "
-        f"train_loss={final_train_metrics['loss']:.6f}, "
-        f"test_loss={final_test_metrics['loss']:.6f}"
+    # Plot 2: Rank IC
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.plot(epochs_arr, history["train_rank_ic"], label="Train Rank-IC", linewidth=2)
+    ax.plot(epochs_arr, history["test_rank_ic"], label="Test Rank-IC", linewidth=2)
+    if best_epoch > 0:
+        ax.axvline(best_epoch, color="green", linestyle="--", alpha=0.7,
+                   label=f"Best epoch {best_epoch}")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Spearman IC")
+    ax.set_title(f"THGNN — Rank IC  [{run_tag}]")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+    ic_plot_path = PLOT_DIR / f"{run_tag}_thgnn_rank_ic_curve.png"
+    plt.savefig(ic_plot_path, dpi=200)
+    plt.close(fig)
+
+    # Plot 3: Directional Accuracy & Loss Ratio
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.plot(epochs_arr, history["train_dir_acc"], label="Train Dir-Acc", linewidth=2)
+    ax.plot(epochs_arr, history["test_dir_acc"], label="Test Dir-Acc", linewidth=2)
+    ax.plot(epochs_arr, history["loss_ratio"], label="Test/Train ratio",
+            linewidth=1.5, linestyle=":", color="red")
+    ax.axhline(args.max_loss_ratio, color="red", linestyle="--", alpha=0.5,
+               label=f"Divergence guard ({args.max_loss_ratio}x)")
+    if best_epoch > 0:
+        ax.axvline(best_epoch, color="green", linestyle="--", alpha=0.7,
+                   label=f"Best epoch {best_epoch}")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Value")
+    ax.set_title(f"THGNN — Dir Accuracy & Loss Ratio  [{run_tag}]")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+    diracc_plot_path = PLOT_DIR / f"{run_tag}_thgnn_dir_acc_curve.png"
+    plt.savefig(diracc_plot_path, dpi=200)
+    plt.close(fig)
+
+    # ---- JSON summary ----
+    total_time = time.time() - t0_total
+    summary = {
+        "run_tag":          run_tag,
+        "stop_reason":      stop_reason,
+        "best_epoch":       best_epoch,
+        "best_test_ic":     round(best_test_ic, 6),
+        "best_test_mse":    round(best_test_mse, 8),
+        "final_train_loss": round(final_train_metrics["loss"], 6),
+        "final_test_loss":  round(final_test_metrics["loss"], 6),
+        "final_test_rank_ic":  round(final_test_metrics["rank_ic"], 6),
+        "final_test_dir_acc":  round(final_test_metrics["dir_acc"], 6),
+        "total_epochs_run": len(epochs_arr),
+        "total_time_s":     round(total_time, 1),
+        "args":             {k: str(v) for k, v in vars(args).items()},
+        "epoch_history":    {
+            k: [round(v, 6) if isinstance(v, float) else v for v in vals]
+            for k, vals in history.items()
+        },
+    }
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+
+    logger.info("-" * 100)
+    logger.info("Training complete.")
+    logger.info(f"Stop reason:     {stop_reason}")
+    logger.info(f"Best epoch:      {best_epoch}")
+    logger.info(f"Best test IC:    {best_test_ic:.4f}")
+    logger.info(f"Best test MSE:   {best_test_mse:.6f}")
+    logger.info(f"Checkpoint:      {best_path}")
+    logger.info(
+        f"Final metrics  |  "
+        f"train_loss={final_train_metrics['loss']:.6f}  "
+        f"test_loss={final_test_metrics['loss']:.6f}  "
+        f"test_rank_ic={final_test_metrics['rank_ic']:.4f}  "
+        f"dir_acc={final_test_metrics['dir_acc']:.4f}"
     )
-    print(
-        "Directional accuracy | "
-        f"train={final_train_metrics['dir_acc']:.4f}, "
-        f"test={final_test_metrics['dir_acc']:.4f}"
-    )
-    print(f"Saved loss plot: {loss_plot_path}")
+    logger.info(f"Loss plot:       {loss_plot_path}")
+    logger.info(f"Rank-IC plot:    {ic_plot_path}")
+    logger.info(f"Dir-Acc plot:    {diracc_plot_path}")
+    logger.info(f"Text log:        {log_path}")
+    logger.info(f"CSV metrics:     {csv_path}")
+    logger.info(f"JSON summary:    {json_path}")
+    logger.info(f"Total wall time: {total_time / 60:.1f} min")
 
 
 if __name__ == "__main__":

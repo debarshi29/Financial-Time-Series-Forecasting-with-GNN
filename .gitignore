@@ -32,7 +32,7 @@ Thumbs.db
 .vscode/
 .claude/
 .codex/
-
+Report/
 # Logs
 *.log
 
