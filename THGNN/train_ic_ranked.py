@@ -52,10 +52,10 @@ def parse_args() -> argparse.Namespace:
                         help="Ignored — kept for walk_forward_train.py compatibility.")
     parser.add_argument("--test-start-date", type=str, default="2025-01-01")
     parser.add_argument("--test-end-date", type=str, default="2026-12-31")
-    parser.add_argument("--epochs", type=int, default=80)
-    parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--epochs", type=int, default=150)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight-decay", type=float, default=5e-5)
-    parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--dropout", type=float, default=0.25)
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--num-heads", type=int, default=4)
     parser.add_argument("--num-layers", type=int, default=1)
@@ -65,8 +65,8 @@ def parse_args() -> argparse.Namespace:
                              "Must match the feature dimension in the graph samples.")
     parser.add_argument("--mse-weight", type=float, default=0.7)
     parser.add_argument("--ic-weight", type=float, default=0.5)
-    parser.add_argument("--dispersion-weight", type=float, default=0.3)
-    parser.add_argument("--min-dispersion-ratio", type=float, default=0.5,
+    parser.add_argument("--dispersion-weight", type=float, default=0.6)
+    parser.add_argument("--min-dispersion-ratio", type=float, default=0.6,
                         help="Penalize pred_std < min_dispersion_ratio * target_std to prevent mean-collapse.")
     parser.add_argument("--max-dispersion-ratio", type=float, default=2.0,
                         help="Penalize pred_std > max_dispersion_ratio * target_std to prevent over-spreading.")
@@ -74,9 +74,11 @@ def parse_args() -> argparse.Namespace:
                         help="Typical daily return std used to normalize MSE.")
     parser.add_argument("--target-horizon", type=int, default=0,
                         help="Which label horizon to train on (0=next-day, 1, 2).")
-    parser.add_argument("--patience", type=int, default=10)
-    parser.add_argument("--ic-warmup-epochs", type=int, default=3,
+    parser.add_argument("--patience", type=int, default=20)
+    parser.add_argument("--ic-warmup-epochs", type=int, default=5,
                         help="Ramp IC loss weight from 0 to --ic-weight over this many epochs.")
+    parser.add_argument("--lr-warmup-epochs", type=int, default=5,
+                        help="Linear LR warmup from 0.1x to 1x over this many epochs (then cosine decay).")
     parser.add_argument("--seed", type=int, default=42)
     # Divergence guard (mirrors train_hybrid.py)
     parser.add_argument("--max-loss-ratio", type=float, default=3.5,
@@ -335,7 +337,7 @@ def run_epoch(
             if training:
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
-                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
                 optimizer.step()
                 sums["grad_norm"] += grad_norm  # GPU tensor — sync deferred to epoch end
             else:
@@ -455,9 +457,8 @@ def main() -> None:
     logger.info(f"THGNN model parameters: {n_params:,}")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    warmup_epochs = 2
     scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, lr_lambda=_make_lr_lambda(warmup_epochs, args.epochs)
+        optimizer, lr_lambda=_make_lr_lambda(args.lr_warmup_epochs, args.epochs)
     )
 
     best_test_ic = -np.inf
