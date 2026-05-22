@@ -100,14 +100,16 @@ class StockHeteGAT(nn.Module):
         self,
         in_features=12,
         out_features=8,
-        num_heads=8,
-        hidden_dim=64,
+        num_heads=4,
+        hidden_dim=32,
         num_layers=1,
         predictor_out_dim=1,
         predictor_activation=None,
         dropout=0.3,
+        feature_noise_std=0.0,
     ):
         super(StockHeteGAT, self).__init__()
+        self.feature_noise_std = float(feature_noise_std)
         self.input_norm = nn.LayerNorm(in_features)
         self.encoding = nn.GRU(
             input_size=in_features,
@@ -146,6 +148,8 @@ class StockHeteGAT(nn.Module):
 
     def forward(self, inputs, pos_adj, neg_adj, requires_weight=False):
         inputs = self.input_norm(inputs)
+        if self.training and self.feature_noise_std > 0.0:
+            inputs = inputs + self.feature_noise_std * torch.randn_like(inputs)
         # Cross-sectional demean: for each (timestep, channel), subtract the
         # market-wide average across all N stocks. This removes the common beta
         # factor so the GRU focuses on stock-specific alpha, directly aligned

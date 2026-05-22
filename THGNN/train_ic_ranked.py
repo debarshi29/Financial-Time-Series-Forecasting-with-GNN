@@ -44,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train THGNN with MSE + IC + dispersion regularization.")
     parser.add_argument("--data-dir", type=Path, default=TRAIN_DATA_DIR)
     parser.add_argument("--model-dir", type=Path, default=MODEL_DIR)
-    parser.add_argument("--train-start-date", type=str, default="2015-01-01")
+    parser.add_argument("--train-start-date", type=str, default="2019-01-01")
     parser.add_argument("--train-end-date", type=str, default="2024-12-31")
     parser.add_argument("--val-start-date", type=str, default=None,
                         help="Ignored — kept for walk_forward_train.py compatibility.")
@@ -55,18 +55,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=150)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight-decay", type=float, default=5e-5)
-    parser.add_argument("--dropout", type=float, default=0.25)
-    parser.add_argument("--hidden-dim", type=int, default=128)
+    parser.add_argument("--dropout", type=float, default=0.3)
+    parser.add_argument("--hidden-dim", type=int, default=32)
     parser.add_argument("--num-heads", type=int, default=4)
     parser.add_argument("--num-layers", type=int, default=1)
-    parser.add_argument("--out-features", type=int, default=32)
+    parser.add_argument("--out-features", type=int, default=8)
     parser.add_argument("--in-features", type=int, default=12,
                         help="Number of input features per stock per timestep. "
                              "Must match the feature dimension in the graph samples.")
+    parser.add_argument("--feature-noise-std", type=float, default=0.02,
+                        help="Std of additive Gaussian noise injected on input features "
+                             "during training (0 disables). Helps regularize against the "
+                             "train-vs-test regime gap.")
     parser.add_argument("--mse-weight", type=float, default=0.7)
     parser.add_argument("--ic-weight", type=float, default=0.5)
-    parser.add_argument("--dispersion-weight", type=float, default=0.6)
-    parser.add_argument("--min-dispersion-ratio", type=float, default=0.6,
+    parser.add_argument("--dispersion-weight", type=float, default=0.1)
+    parser.add_argument("--min-dispersion-ratio", type=float, default=0.3,
                         help="Penalize pred_std < min_dispersion_ratio * target_std to prevent mean-collapse.")
     parser.add_argument("--max-dispersion-ratio", type=float, default=2.0,
                         help="Penalize pred_std > max_dispersion_ratio * target_std to prevent over-spreading.")
@@ -451,6 +455,7 @@ def main() -> None:
         predictor_out_dim=1,
         predictor_activation=None,
         dropout=args.dropout,
+        feature_noise_std=args.feature_noise_std,
     ).to(device)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
