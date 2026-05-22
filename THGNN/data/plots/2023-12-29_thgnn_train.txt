@@ -1,39 +1,51 @@
-2026-05-18 17:26:12  Device: cuda
-2026-05-18 17:26:12  Train: 2015-02-27.pkl -> 2023-12-29.pkl (2182 samples)
-2026-05-18 17:26:12  Test:  2024-01-01.pkl -> 2026-02-27.pkl (536 samples)  [used for checkpoint selection]
-2026-05-18 17:26:12  Checkpoint pre_data: 2023-12-29
-2026-05-18 17:26:12  Args: {'data_dir': PosixPath('/home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/data_train_predict'), 'model_dir': PosixPath('/home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/model_saved'), 'train_start_date': '2015-01-01', 'train_end_date': '2023-12-31', 'val_start_date': None, 'val_end_date': None, 'test_start_date': '2024-01-01', 'test_end_date': '2026-02-28', 'epochs': 80, 'lr': 0.0005, 'weight_decay': 5e-05, 'dropout': 0.1, 'hidden_dim': 128, 'num_heads': 4, 'num_layers': 1, 'out_features': 32, 'in_features': 12, 'mse_weight': 0.7, 'ic_weight': 0.5, 'dispersion_weight': 0.3, 'min_dispersion_ratio': 0.5, 'max_dispersion_ratio': 2.0, 'return_scale': 0.023, 'target_horizon': 0, 'patience': 10, 'ic_warmup_epochs': 3, 'seed': 42, 'max_loss_ratio': 3.5, 'overfit_patience': 5, 'log_dir': None}
-2026-05-18 17:26:16  THGNN model parameters: 187,417
-2026-05-18 17:26:16  CSV log  -> /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_metrics.csv
-2026-05-18 17:26:16  Text log -> /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_train.txt
-2026-05-18 17:26:16  ----------------------------------------------------------------------------------------------------
-2026-05-18 17:26:16    Ep        LR   tr_loss   tr_mse   tr_ic   tr_gn   te_loss   te_mse   te_ic  te_dir  ratio    secs  flag
-2026-05-18 17:26:16  ----------------------------------------------------------------------------------------------------
-2026-05-18 17:26:41     1  5.00e-05    1.4987   1.8300  0.0087  10.234    0.8205   0.8940  0.0172  0.4869   0.55    24.7s  
-2026-05-18 17:26:41    => Checkpoint saved (rank_ic=0.0172)
-2026-05-18 17:27:06     2  2.75e-04    1.0960   1.0151  0.0152   6.579    0.9830   0.8913  0.0146  0.4869   0.90    24.5s  
-2026-05-18 17:27:32     3  5.00e-04    1.2584   1.0129  0.0145   8.034    1.1505   0.9025  0.0106  0.4869   0.91    26.8s  
-2026-05-18 17:27:56     4  5.00e-04    1.2539   1.0114  0.0190   8.061    1.1489   0.8862  0.0127  0.4869   0.92    23.8s  
-2026-05-18 17:28:19     5  4.99e-04    1.2506   1.0088  0.0192   8.225    1.1456   0.8891  0.0152  0.4869   0.92    23.2s  
-2026-05-18 17:28:42     6  4.98e-04    1.2474   1.0072  0.0225   8.139    1.1398   0.8672  0.0164  0.4869   0.91    23.0s  
-2026-05-18 17:29:06     7  4.97e-04    1.2458   1.0070  0.0252   8.279    1.1421   0.8787  0.0169  0.4869   0.92    23.5s  
-2026-05-18 17:29:29     8  4.95e-04    1.2411   1.0052  0.0290   8.456    1.1439   0.8599  0.0097  0.4869   0.92    22.8s  
-2026-05-18 17:29:52     9  4.93e-04    1.2375   1.0049  0.0310   8.418    1.1444   0.8741  0.0103  0.4869   0.92    22.9s  
-2026-05-18 17:30:14    10  4.90e-04    1.2330   1.0029  0.0358   8.370    1.1426   0.8659  0.0100  0.4869   0.93    22.8s  
-2026-05-18 17:30:37    11  4.87e-04    1.2299   1.0024  0.0371   8.378    1.1409   0.8659  0.0154  0.4869   0.93    22.8s  
-2026-05-18 17:30:37  Early stopping: IC patience=10 exhausted at epoch 11.
-2026-05-18 17:30:50  ----------------------------------------------------------------------------------------------------
-2026-05-18 17:30:50  Training complete.
-2026-05-18 17:30:50  Stop reason:     ic_patience_10
-2026-05-18 17:30:50  Best epoch:      1
-2026-05-18 17:30:50  Best test IC:    0.0172
-2026-05-18 17:30:50  Best test MSE:   0.893962
-2026-05-18 17:30:50  Checkpoint:      /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/model_saved/2023-12-29_icrank_best.dat
-2026-05-18 17:30:50  Final metrics  |  train_loss=1.261451  test_loss=1.147204  test_rank_ic=0.0172  dir_acc=0.4869
-2026-05-18 17:30:50  Loss plot:       /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_loss_curve.png
-2026-05-18 17:30:50  Rank-IC plot:    /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_rank_ic_curve.png
-2026-05-18 17:30:50  Dir-Acc plot:    /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_dir_acc_curve.png
-2026-05-18 17:30:50  Text log:        /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_train.txt
-2026-05-18 17:30:50  CSV metrics:     /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_metrics.csv
-2026-05-18 17:30:50  JSON summary:    /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_summary.json
-2026-05-18 17:30:50  Total wall time: 4.6 min
+2026-05-22 18:22:55  Device: cuda
+2026-05-22 18:22:55  Train: 2015-02-27.pkl -> 2023-12-29.pkl (2182 samples)
+2026-05-22 18:22:55  Test:  2024-01-01.pkl -> 2026-05-12.pkl (563 samples)  [used for checkpoint selection]
+2026-05-22 18:22:55  Checkpoint pre_data: 2023-12-29
+2026-05-22 18:22:55  Args: {'data_dir': PosixPath('/home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/data_train_predict'), 'model_dir': PosixPath('/home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/model_saved'), 'train_start_date': '2015-01-01', 'train_end_date': '2023-12-31', 'val_start_date': None, 'val_end_date': None, 'test_start_date': '2024-01-01', 'test_end_date': '2026-05-12', 'epochs': 150, 'lr': 0.0001, 'weight_decay': 5e-05, 'dropout': 0.25, 'hidden_dim': 128, 'num_heads': 4, 'num_layers': 1, 'out_features': 32, 'in_features': 12, 'mse_weight': 0.7, 'ic_weight': 0.5, 'dispersion_weight': 0.6, 'min_dispersion_ratio': 0.6, 'max_dispersion_ratio': 2.0, 'return_scale': 0.023, 'target_horizon': 0, 'patience': 20, 'ic_warmup_epochs': 5, 'lr_warmup_epochs': 5, 'seed': 42, 'max_loss_ratio': 3.5, 'overfit_patience': 5, 'log_dir': None}
+2026-05-22 18:22:59  THGNN model parameters: 187,417
+2026-05-22 18:23:00  CSV log  -> /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_metrics.csv
+2026-05-22 18:23:00  Text log -> /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_train.txt
+2026-05-22 18:23:00  ----------------------------------------------------------------------------------------------------
+2026-05-22 18:23:00    Ep        LR   tr_loss   tr_mse   tr_ic   tr_gn   te_loss   te_mse   te_ic  te_dir  ratio    secs  flag
+2026-05-22 18:23:00  ----------------------------------------------------------------------------------------------------
+2026-05-22 18:23:24     1  1.00e-05    4.6912   5.9993  0.0009  26.202    0.8633   0.8887  0.0060  0.4872   0.18    24.3s  
+2026-05-22 18:23:24    => Checkpoint saved (rank_ic=0.0060)
+2026-05-22 18:23:48     2  2.80e-05    1.0660   1.1486  0.0103   5.615    1.1265   1.3214  0.0204  0.4872   1.06    23.9s  
+2026-05-22 18:23:48    => Checkpoint saved (rank_ic=0.0204)
+2026-05-22 18:24:11     3  4.60e-05    1.1578   1.1318  0.0136   6.039    1.5791   1.8233  0.0199  0.4872   1.36    22.8s  
+2026-05-22 18:24:34     4  6.40e-05    1.2509   1.1258  0.0178   6.394    1.8271   2.0314  0.0175  0.4872   1.46    22.8s  
+2026-05-22 18:24:56     5  8.20e-05    1.3466   1.1233  0.0175   6.788    1.7097   1.7321  0.0187  0.4872   1.27    22.7s  
+2026-05-22 18:25:19     6  1.00e-04    1.3431   1.1213  0.0190   6.721    1.8668   1.9513  0.0167  0.4874   1.39    22.8s  
+2026-05-22 18:25:42     7  1.00e-04    1.3404   1.1162  0.0214   6.742    1.8691   1.9517  0.0115  0.4875   1.39    22.9s  
+2026-05-22 18:26:05     8  1.00e-04    1.3389   1.1172  0.0201   6.712    1.8303   1.8994  0.0121  0.4874   1.37    22.7s  
+2026-05-22 18:26:28     9  9.99e-05    1.3360   1.1130  0.0223   6.758    1.7709   1.8167  0.0111  0.4873   1.33    22.9s  
+2026-05-22 18:26:51    10  9.98e-05    1.3337   1.1133  0.0236   6.785    1.8599   1.9404  0.0107  0.4873   1.39    23.0s  
+2026-05-22 18:27:14    11  9.97e-05    1.3319   1.1127  0.0251   6.655    1.7873   1.8390  0.0101  0.4872   1.34    22.8s  
+2026-05-22 18:27:36    12  9.96e-05    1.3298   1.1121  0.0278   6.708    1.6482   1.6442  0.0112  0.4873   1.24    22.7s  
+2026-05-22 18:27:59    13  9.94e-05    1.3277   1.1116  0.0282   6.725    1.7028   1.7222  0.0149  0.4873   1.28    22.8s  
+2026-05-22 18:28:22    14  9.93e-05    1.3249   1.1101  0.0315   6.757    1.7299   1.7611  0.0151  0.4872   1.31    22.9s  
+2026-05-22 18:28:45    15  9.91e-05    1.3235   1.1087  0.0322   6.750    1.6833   1.6956  0.0172  0.4872   1.27    23.2s  
+2026-05-22 18:29:08    16  9.88e-05    1.3232   1.1082  0.0325   6.769    1.6648   1.6698  0.0178  0.4872   1.26    22.9s  
+2026-05-22 18:29:31    17  9.86e-05    1.3205   1.1076  0.0357   6.821    1.5887   1.5613  0.0158  0.4872   1.20    22.7s  
+2026-05-22 18:29:54    18  9.83e-05    1.3188   1.1060  0.0375   6.822    1.6025   1.5822  0.0175  0.4872   1.22    23.0s  
+2026-05-22 18:30:17    19  9.80e-05    1.3177   1.1046  0.0391   6.793    1.4955   1.4298  0.0150  0.4872   1.13    22.9s  
+2026-05-22 18:30:40    20  9.77e-05    1.3146   1.1047  0.0403   6.864    1.5003   1.4371  0.0175  0.4872   1.14    22.8s  
+2026-05-22 18:31:02    21  9.74e-05    1.3136   1.1038  0.0406   6.838    1.5808   1.5510  0.0164  0.4872   1.20    22.9s  
+2026-05-22 18:31:26    22  9.70e-05    1.3107   1.1014  0.0416   6.854    1.4677   1.3913  0.0164  0.4872   1.12    23.1s  
+2026-05-22 18:31:26  Early stopping: IC patience=20 exhausted at epoch 22.
+2026-05-22 18:31:39  ----------------------------------------------------------------------------------------------------
+2026-05-22 18:31:39  Training complete.
+2026-05-22 18:31:39  Stop reason:     ic_patience_20
+2026-05-22 18:31:39  Best epoch:      2
+2026-05-22 18:31:39  Best test IC:    0.0204
+2026-05-22 18:31:39  Best test MSE:   1.321371
+2026-05-22 18:31:39  Checkpoint:      /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/model_saved/2023-12-29_icrank_best.dat
+2026-05-22 18:31:39  Final metrics  |  train_loss=1.522501  test_loss=1.420171  test_rank_ic=0.0204  dir_acc=0.4872
+2026-05-22 18:31:39  Loss plot:       /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_loss_curve.png
+2026-05-22 18:31:39  Rank-IC plot:    /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_rank_ic_curve.png
+2026-05-22 18:31:39  Dir-Acc plot:    /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_dir_acc_curve.png
+2026-05-22 18:31:39  Text log:        /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_train.txt
+2026-05-22 18:31:39  CSV metrics:     /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_metrics.csv
+2026-05-22 18:31:39  JSON summary:    /home/aiot/Documents/Debarshi_BDA_2nd Year/Financial-Time-Series-Forecasting-with-GNN/THGNN/data/plots/2023-12-29_thgnn_summary.json
+2026-05-22 18:31:39  Total wall time: 8.7 min
