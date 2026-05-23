@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GNN + News · NIFTY 500 Forecasting</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+:root {
+  --bg0: #080c14;
+  --bg1: #0d1117;
+  --bg2: #161b22;
+  --bg3: #1f2937;
+  --bg4: #263041;
+  --border: #30363d;
+  --border-sub: #21262d;
+  --green:  #3fb950;
+  --green-bg: #0f2a1a;
+  --red:    #f85149;
+  --red-bg: #2a0f0f;
+  --blue:   #58a6ff;
+  --blue-bg: #0d1f3a;
+  --yellow: #e3b341;
+  --purple: #bc8cff;
+  --text0: #f0f6fc;
+  --text1: #c9d1d9;
+  --text2: #8b949e;
+  --text3: #6e7681;
+  --accent: #1f6feb;
+  --sidebar: 268px;
+  --header: 54px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:'Inter',-apple-system,sans-serif;background:var(--bg0);color:var(--text1);font-size:13px}
+
+/* ── Layout ── */
+.app{display:grid;grid-template-columns:var(--sidebar) 1fr;grid-template-rows:var(--header) 1fr;height:100vh}
+
+/* ── Header ── */
+header{
+  grid-column:1/-1;
+  background:var(--bg1);
+  border-bottom:1px solid var(--border-sub);
+  display:flex;align-items:center;padding:0 18px;gap:10px;
+  position:relative;z-index:20;
+}
+.logo{
+  width:26px;height:26px;border-radius:6px;
+  background:linear-gradient(135deg,#1f6feb,#bc8cff);
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:700;color:#fff;flex-shrink:0;
+}
+.h-title{font-size:14px;font-weight:600;color:var(--text0)}
+.h-sub{font-size:11px;color:var(--text3);margin-left:2px}
+.h-spacer{flex:1}
+.h-clock{font-size:11px;color:var(--text3);font-family:'JetBrains Mono',monospace;margin-right:8px}
+.status-dot{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0;animation:blink 2.4s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.status-label{font-size:11px;color:var(--text2)}
+
+/* ── Sidebar ── */
+.sidebar{
+  background:var(--bg1);border-right:1px solid var(--border-sub);
+  display:flex;flex-direction:column;gap:0;overflow-y:auto;
+  padding:14px 14px 10px;
+}
+.sb-section{margin-bottom:18px}
+.sb-title{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:10px}
+.fgroup{margin-bottom:10px}
+.flabel{font-size:11px;font-weight:500;color:var(--text2);margin-bottom:5px;display:block}
+.finput{
+  width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:6px;
+  padding:7px 10px;font-size:12px;color:var(--text0);font-family:inherit;outline:none;
+  transition:border-color .15s;
+}
+.finput:focus{border-color:var(--blue)}
+select.finput{
+  appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238b949e'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center;padding-right:26px;
+}
+.range-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+.range-val{font-size:11px;color:var(--text0);font-family:'JetBrains Mono',monospace;font-weight:500}
+input[type=range]{width:100%;height:3px;background:var(--bg3);border-radius:2px;appearance:none;outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{appearance:none;width:13px;height:13px;border-radius:50%;background:var(--blue);cursor:pointer;transition:transform .1s,box-shadow .1s}
+input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.25);box-shadow:0 0 0 4px rgba(88,166,255,.18)}
+.cb-row{display:flex;align-items:center;gap:7px;cursor:pointer;margin-bottom:8px}
+.cb-row input[type=checkbox]{width:13px;height:13px;accent-color:var(--blue);cursor:pointer;flex-shrink:0}
+.cb-row label{font-size:12px;color:var(--text1);cursor:pointer}
+.run-btn{
+  width:100%;padding:10px;border:1px solid #238636;border-radius:6px;
+  background:linear-gradient(to bottom,#1a7f37,#166628);
+  color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  transition:all .15s;margin-top:2px;
+}
+.run-btn:hover:not(:disabled){background:linear-gradient(to bottom,#238636,#1a7f37);border-color:#2ea043}
+.run-btn:disabled{opacity:.45;cursor:not-allowed}
+.sb-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+.chip{font-size:10px;padding:2px 7px;border-radius:4px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-family:'JetBrains Mono',monospace}
+.chip.active{background:var(--blue-bg);border-color:rgba(88,166,255,.4);color:var(--blue)}
+
+/* ── Main ── */
+.main{display:flex;flex-direction:column;overflow:hidden;background:var(--bg0)}
+
+/* ── Tabs ── */
+.tabs{
+  background:var(--bg1);border-bottom:1px solid var(--border-sub);
+  display:flex;align-items:flex-end;padding:0 18px;gap:0;overflow-x:auto;
+  scrollbar-width:none;
+}
+.tabs::-webkit-scrollbar{display:none}
+.tab{
+  padding:12px 14px 10px;font-size:12px;font-weight:500;color:var(--text2);
+  cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;
+  transition:color .15s,border-color .15s;white-space:nowrap;font-family:inherit;
+  position:relative;
+}
+.tab:hover{color:var(--text0)}
+.tab.active{color:var(--text0);border-bottom-color:var(--blue)}
+.tab-badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:9px;font-weight:600;padding:1px 5px;border-radius:10px;
+  background:var(--bg3);color:var(--text2);margin-left:5px;
+  transition:background .2s,color .2s;
+}
+.tab.active .tab-badge{background:var(--blue-bg);color:var(--blue)}
+
+/* ── Panel ── */
+.panels{flex:1;overflow:hidden;position:relative}
+.panel{
+  position:absolute;inset:0;overflow-y:auto;padding:22px 22px 40px;
+  display:none;animation:fadeUp .22s ease;
+}
+.panel.active{display:block}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--border)}
+
+/* ── Metric grid ── */
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px}
+.mcard{
+  background:var(--bg2);border:1px solid var(--border-sub);border-radius:8px;
+  padding:14px 16px;transition:border-color .15s,transform .15s;
+}
+.mcard:hover{border-color:var(--border);transform:translateY(-1px)}
+.mlabel{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
+.mval{font-size:26px;font-weight:700;color:var(--text0);line-height:1;font-variant-numeric:tabular-nums}
+.mval.g{color:var(--green)}
+.mval.r{color:var(--red)}
+.msub{font-size:11px;color:var(--text3);margin-top:4px}
+
+/* ── Regime banner ── */
+.regime-bar{
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  background:var(--bg2);border:1px solid var(--border-sub);border-radius:8px;
+  padding:10px 14px;margin-bottom:14px;
+}
+.rbadge{
+  font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;
+  text-transform:uppercase;letter-spacing:.04em;
+}
+.rbadge.BULL{background:var(--green-bg);color:var(--green);border:1px solid #1a5e2a}
+.rbadge.BEAR{background:var(--red-bg);color:var(--red);border:1px solid #5e1a1a}
+.rbadge.SIDEWAYS{background:#1c1500;color:var(--yellow);border:1px solid #4a3800}
+.rstat{font-size:12px;color:var(--text2)}
+.rstat strong{color:var(--text0)}
+
+/* ── Tables ── */
+.tcard{background:var(--bg2);border:1px solid var(--border-sub);border-radius:8px;overflow:hidden;margin-bottom:18px}
+.tcard-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:11px 14px;border-bottom:1px solid var(--border-sub);
+}
+.tcard-title{font-size:13px;font-weight:600;color:var(--text0)}
+.tscroll{overflow-x:auto;max-height:440px;overflow-y:auto}
+table{width:100%;border-collapse:collapse}
+thead tr{background:var(--bg3);position:sticky;top:0;z-index:1}
+th{
+  padding:9px 12px;text-align:left;font-size:10px;font-weight:600;
+  text-transform:uppercase;letter-spacing:.055em;color:var(--text3);
+  border-bottom:1px solid var(--border-sub);cursor:pointer;user-select:none;
+  white-space:nowrap;transition:color .12s;
+}
+th:hover{color:var(--text1)}
+td{
+  padding:8px 12px;border-bottom:1px solid var(--border-sub);
+  color:var(--text1);font-variant-numeric:tabular-nums;
+}
+tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:rgba(255,255,255,.025)}
+
+/* ── Badges ── */
+.badge{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.04em;white-space:nowrap}
+.badge-buy {background:var(--green-bg);color:var(--green);border:1px solid #1a5e2a}
+.badge-sell{background:var(--red-bg)  ;color:var(--red)  ;border:1px solid #5e1a1a}
+.badge-hold{background:var(--bg3)     ;color:var(--text2);border:1px solid var(--border)}
+.badge-high  {background:var(--red-bg)  ;color:var(--red)   ;border:1px solid #5e1a1a}
+.badge-medium{background:#1c1500       ;color:var(--yellow) ;border:1px solid #4a3800}
+.badge-low   {background:var(--green-bg);color:var(--green) ;border:1px solid #1a5e2a}
+
+/* ── Chart cards ── */
+.ccard{background:var(--bg2);border:1px solid var(--border-sub);border-radius:8px;padding:16px;margin-bottom:18px}
+.ccard-title{font-size:13px;font-weight:600;color:var(--text0);margin-bottom:12px}
+
+/* ── Section header ── */
+.sec-header{margin-bottom:16px}
+.sec-title{font-size:16px;font-weight:600;color:var(--text0);margin-bottom:2px}
+.sec-sub{font-size:11px;color:var(--text3)}
+
+/* ── Loading ── */
+.overlay{
+  display:none;position:fixed;inset:0;background:rgba(8,12,20,.88);
+  backdrop-filter:blur(6px);z-index:999;
+  align-items:center;justify-content:center;flex-direction:column;gap:18px;
+}
+.overlay.on{display:flex}
+.spinner{width:36px;height:36px;border:2.5px solid var(--bg4);border-top-color:var(--blue);border-radius:50%;animation:spin .75s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ol-title{font-size:14px;font-weight:500;color:var(--text0)}
+.ol-steps{font-size:11px;color:var(--text3);text-align:center;max-width:320px;line-height:1.6}
+.ol-prog{display:flex;gap:6px;margin-top:4px}
+.prog-dot{width:6px;height:6px;border-radius:50%;background:var(--bg4);animation:progDot 1.4s ease-in-out infinite}
+.prog-dot:nth-child(2){animation-delay:.2s}
+.prog-dot:nth-child(3){animation-delay:.4s}
+@keyframes progDot{0%,80%,100%{background:var(--bg4)}40%{background:var(--blue)}}
+
+/* ── Toast ── */
+.toast{
+  position:fixed;bottom:20px;right:20px;
+  background:var(--bg2);border:1px solid var(--border);border-radius:8px;
+  padding:11px 15px;font-size:12px;color:var(--text0);z-index:2000;
+  display:none;align-items:center;gap:9px;
+  box-shadow:0 4px 20px rgba(0,0,0,.5);animation:toastIn .2s ease;
+}
+.toast.on{display:flex}
+.toast.ok{border-left:3px solid var(--green)}
+.toast.err{border-left:3px solid var(--red)}
+@keyframes toastIn{from{transform:translateX(110%);opacity:0}to{transform:translateX(0);opacity:1}}
+
+/* ── Info/warn boxes ── */
+.infobox{background:rgba(88,166,255,.07);border:1px solid rgba(88,166,255,.2);border-radius:8px;padding:12px 14px;font-size:12px;line-height:1.6;color:var(--text1);margin-bottom:14px}
+.warnbox{background:rgba(227,179,65,.07);border:1px solid rgba(227,179,65,.2);border-radius:8px;padding:12px 14px;font-size:12px;line-height:1.6;color:var(--text1);margin-bottom:14px}
+code{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--bg3);padding:1px 5px;border-radius:3px}
+
+/* ── Empty state ── */
+.empty{text-align:center;padding:56px 24px}
+.empty-icon{font-size:36px;margin-bottom:14px}
+.empty-title{font-size:14px;font-weight:600;color:var(--text2);margin-bottom:6px}
+.empty-desc{font-size:12px;color:var(--text3);line-height:1.6}
+
+/* ── News headlines ── */
+.headline{background:var(--bg2);border:1px solid var(--border-sub);border-radius:7px;padding:11px 13px;margin-bottom:8px;transition:border-color .15s}
+.headline:hover{border-color:var(--border)}
+.hl-text{font-size:12px;color:var(--text0);line-height:1.4;margin-bottom:7px}
+.hl-meta{display:flex;align-items:center;gap:10px}
+.sbar{display:flex;height:3px;border-radius:2px;overflow:hidden;width:80px;flex-shrink:0}
+.sbar-p{background:var(--green)}
+.sbar-n{background:var(--red)}
+.sbar-u{background:var(--text3)}
+.slabel{font-size:10px;font-weight:700;letter-spacing:.04em}
+.smeta{font-size:10px;color:var(--text3)}
+
+/* ── Architecture ── */
+.arch-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-bottom:18px}
+.arch-card{background:var(--bg2);border:1px solid var(--border-sub);border-radius:8px;padding:14px}
+.arch-node{font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--blue);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.arch-desc{font-size:12px;color:var(--text2);line-height:1.5}
+.pipeline{
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  background:var(--bg2);border:1px solid var(--border-sub);border-radius:8px;
+  padding:14px;margin-bottom:16px;
+}
+.pnode{background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:5px 10px;font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--blue);font-weight:500}
+.parrow{color:var(--text3);font-size:13px}
+
+/* ── Report ── */
+.report-wrap{background:var(--bg2);border:1px solid var(--border-sub);border-radius:8px;padding:24px;line-height:1.75;font-size:13px}
+.report-wrap h1{font-size:20px;color:var(--text0);margin:0 0 14px;font-weight:700}
+.report-wrap h2{font-size:15px;color:var(--text0);margin:20px 0 10px;padding-bottom:7px;border-bottom:1px solid var(--border-sub)}
+.report-wrap h3{font-size:13px;color:var(--blue);margin:14px 0 8px}
+.report-wrap p{margin-bottom:10px;color:var(--text1)}
+.report-wrap ul,.report-wrap ol{margin-bottom:10px;padding-left:18px;color:var(--text1)}
+.report-wrap li{margin-bottom:3px}
+.report-wrap strong{color:var(--text0)}
+.report-wrap table{margin-bottom:14px}
+.report-wrap th,.report-wrap td{padding:7px 10px}
+.report-wrap th{background:var(--bg3);color:var(--text2)}
+
+/* ── Outline button ── */
+.obtn{
+  background:transparent;border:1px solid var(--border);color:var(--text1);
+  padding:5px 11px;border-radius:6px;font-size:11px;cursor:pointer;
+  font-family:inherit;font-weight:500;transition:all .15s;
+}
+.obtn:hover{border-color:var(--text2);color:var(--text0);background:var(--bg3)}
+
+/* ── Formula block ── */
+.formula{background:var(--bg3);border-radius:6px;padding:14px 16px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:2}
+.fkey{color:var(--blue)}
+.fval{color:var(--text1)}
+.fcomment{color:var(--text3);font-size:11px}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+<!-- ── Header ─────────────────────────────────────────────────── -->
+<header>
+  <div class="logo">G</div>
+  <span class="h-title">GNN + News Forecasting</span>
+  <span class="h-sub">NIFTY 500</span>
+  <div class="h-spacer"></div>
+  <span class="h-clock" id="clock"></span>
+  <div class="status-dot" id="statusDot"></div>
+  <span class="status-label" id="statusLabel">Ready</span>
+</header>
+
+<!-- ── Sidebar ────────────────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="sb-section">
+    <div class="sb-title">Configuration</div>
+
+    <div class="fgroup">
+      <label class="flabel">Date</label>
+      <input type="date" class="finput" id="dateInput">
+    </div>
+
+    <div class="fgroup">
+      <label class="flabel">Model Variant</label>
+      <select class="finput" id="modelVariant">
+        <option value="hybrid">Hybrid (BiGRU + MoE + Hypergraph)</option>
+        <option value="mamba">Mamba + MoE</option>
+        <option value="thgnn">Base THGNN (GRU + GAT)</option>
+      </select>
+    </div>
+
+    <div class="fgroup">
+      <div class="range-row">
+        <label class="flabel" style="margin:0">Top-K</label>
+        <span class="range-val" id="topKVal">10</span>
+      </div>
+      <input type="range" id="topK" min="3" max="20" value="10"
+             oninput="document.getElementById('topKVal').textContent=this.value">
+    </div>
+
+    <div class="fgroup">
+      <div class="range-row">
+        <label class="flabel" style="margin:0">GNN Weight (α)</label>
+        <span class="range-val" id="alphaVal">0.70</span>
+      </div>
+      <input type="range" id="alpha" min="0" max="1" step="0.05" value="0.70"
+             oninput="document.getElementById('alphaVal').textContent=parseFloat(this.value).toFixed(2);updateChipAlpha(this.value)">
+    </div>
+
+    <div class="fgroup" style="display:flex;flex-direction:column;gap:4px">
+      <div class="cb-row">
+        <input type="checkbox" id="noNews">
+        <label for="noNews">Skip news (GNN-only, faster)</label>
+      </div>
+      <div class="cb-row">
+        <input type="checkbox" id="noReport">
+        <label for="noReport">Skip AI report</label>
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <label class="flabel">LLM Provider</label>
+      <select class="finput" id="llmProvider">
+        <option value="">Auto-detect</option>
+        <option value="groq">Groq (GROQ_API_KEY)</option>
+        <option value="gemini">Gemini (GOOGLE_API_KEY)</option>
+      </select>
+    </div>
+  </div>
+
+  <button class="run-btn" id="runBtn" onclick="runPipeline()">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+    Run Pipeline
+  </button>
+
+  <div class="sb-chips" id="chips" style="margin-top:14px">
+    <div class="chip active" id="chipModel">hybrid</div>
+    <div class="chip" id="chipDate">—</div>
+    <div class="chip" id="chipAlpha">α=0.70</div>
+    <div class="chip" id="chipNews">+news</div>
+  </div>
+</aside>
+
+<!-- ── Main ───────────────────────────────────────────────────── -->
+<main class="main">
+
+  <nav class="tabs">
+    <button class="tab active" onclick="switchTab(0,this)">Portfolio<span class="tab-badge" id="badge0">—</span></button>
+    <button class="tab"        onclick="switchTab(1,this)">Backtest</button>
+    <button class="tab"        onclick="switchTab(2,this)">News</button>
+    <button class="tab"        onclick="switchTab(3,this)">Overview</button>
+    <button class="tab"        onclick="switchTab(4,this)">Risk<span class="tab-badge" id="badge4">—</span></button>
+    <button class="tab"        onclick="switchTab(5,this)">Report</button>
+  </nav>
+
+  <div class="panels">
+
+    <!-- ── Panel 0: Portfolio ── -->
+    <div class="panel active" id="p0">
+      <div id="p0-empty" class="empty">
+        <div class="empty-icon">📊</div>
+        <div class="empty-title">No data yet</div>
+        <div class="empty-desc">Configure settings in the sidebar and click<br><strong>Run Pipeline</strong> to generate recommendations.</div>
+      </div>
+
+      <div id="p0-data" style="display:none">
+        <div id="regimeBanner" class="regime-bar" style="display:none"></div>
+        <div class="metrics" id="p0-metrics"></div>
+
+        <div class="tcard">
+          <div class="tcard-head">
+            <span class="tcard-title">Stock Rankings</span>
+            <button class="obtn" onclick="downloadCSV()">↓ CSV</button>
+          </div>
+          <div class="tscroll">
+            <table id="portTable">
+              <thead><tr>
+                <th onclick="sortBy('ticker')">Ticker</th>
+                <th onclick="sortBy('action')">Action</th>
+                <th onclick="sortBy('gnn_rank')">GNN Score ↕</th>
+                <th onclick="sortBy('sentiment_score')">Sentiment</th>
+                <th onclick="sortBy('final_score')">Final Score ↕</th>
+                <th onclick="sortBy('adjusted_score')">Adj. Score</th>
+                <th onclick="sortBy('news_count')">News</th>
+              </tr></thead>
+              <tbody id="portTbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="ccard" id="p0-scatter" style="display:none">
+          <div class="ccard-title">GNN Score vs News Sentiment</div>
+          <div id="scatterPlot" style="height:340px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Panel 1: Backtest ── -->
+    <div class="panel" id="p1">
+      <div class="sec-header">
+        <div class="sec-title">Backtest Performance</div>
+        <div class="sec-sub">Long-short strategy metrics across historical runs</div>
+      </div>
+
+      <div id="p1-warn" class="warnbox" style="display:none">
+        No backtest results found in <code>THGNN/data/backtest_results/</code>.<br>
+        Run: <code>python THGNN/backtest.py --start-date 2025-01-01 --end-date 2026-02-28 --top-k 5</code>
+      </div>
+
+      <div id="p1-data">
+        <div class="tcard">
+          <div class="tcard-head"><span class="tcard-title">Performance Metrics</span></div>
+          <div class="tscroll">
+            <table>
+              <thead><tr>
+                <th>Run</th><th>Model</th><th>Total Return %</th><th>Ann. Return %</th>
+                <th>Sharpe</th><th>Max DD %</th><th>Win Rate %</th><th>IC Mean</th>
+              </tr></thead>
+              <tbody id="p1-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="ccard"><div class="ccard-title">Sharpe Ratio</div><div id="sharpeChart" style="height:260px"></div></div>
+        <div class="ccard"><div class="ccard-title">Total Return (%)</div><div id="returnChart" style="height:260px"></div></div>
+      </div>
+    </div>
+
+    <!-- ── Panel 2: News ── -->
+    <div class="panel" id="p2">
+      <div class="sec-header">
+        <div class="sec-title">News Sentiment Analysis</div>
+        <div class="sec-sub">FinBERT-powered per-stock sentiment scoring</div>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+        <div class="fgroup" style="flex:1;min-width:180px;margin:0">
+          <label class="flabel">Stock Ticker</label>
+          <select class="finput" id="newsTicker" style="max-width:280px"></select>
+        </div>
+        <div class="fgroup" style="width:150px;margin:0">
+          <div class="range-row">
+            <label class="flabel" style="margin:0">Max Headlines</label>
+            <span class="range-val" id="maxHVal">15</span>
+          </div>
+          <input type="range" id="maxH" min="5" max="30" value="15"
+                 oninput="document.getElementById('maxHVal').textContent=this.value">
+        </div>
+        <button class="run-btn" style="width:auto;padding:9px 18px" onclick="fetchNews()">Fetch &amp; Score</button>
+      </div>
+
+      <div id="p2-empty" class="empty">
+        <div class="empty-icon">📰</div>
+        <div class="empty-title">Select a stock</div>
+        <div class="empty-desc">Choose a ticker and click Fetch &amp; Score to retrieve<br>headlines with FinBERT sentiment analysis.</div>
+      </div>
+
+      <div id="p2-data" style="display:none">
+        <div class="metrics" id="p2-metrics"></div>
+        <div id="headlinesList"></div>
+      </div>
+    </div>
+
+    <!-- ── Panel 3: Overview ── -->
+    <div class="panel" id="p3">
+      <div class="sec-header">
+        <div class="sec-title">Multi-Agent System Architecture</div>
+        <div class="sec-sub">LangGraph pipeline · GNN + NLP signal fusion</div>
+      </div>
+
+      <div class="pipeline">
+        <div class="pnode">START</div><div class="parrow">→</div>
+        <div class="pnode">gnn_node</div><div class="parrow">→</div>
+        <div class="pnode">news_node</div><div class="parrow">→</div>
+        <div class="pnode">portfolio_node</div><div class="parrow">→</div>
+        <div class="pnode">risk_node</div><div class="parrow">→</div>
+        <div class="pnode">macro_node</div><div class="parrow">→</div>
+        <div class="pnode">report_node</div><div class="parrow">→</div>
+        <div class="pnode">END</div>
+      </div>
+
+      <div class="arch-grid">
+        <div class="arch-card"><div class="arch-node">gnn_node</div><div class="arch-desc">GNNAgent runs the selected model variant on ~200–500 NIFTY stocks, outputting a score per ticker.</div></div>
+        <div class="arch-card"><div class="arch-node">news_node</div><div class="arch-desc">NewsAgent fetches headlines via yfinance and scores each with FinBERT, returning per-stock sentiment aggregates.</div></div>
+        <div class="arch-card"><div class="arch-node">portfolio_node</div><div class="arch-desc">PortfolioAgent fuses GNN rank and sentiment: <code>final = α·GNN + (1−α)·sentiment_norm</code></div></div>
+        <div class="arch-card"><div class="arch-node">risk_node</div><div class="arch-desc">RiskAgent pulls live beta, 20d volatility, 52-week range, and ATR from yfinance to label stocks HIGH / MEDIUM / LOW risk.</div></div>
+        <div class="arch-card"><div class="arch-node">macro_node</div><div class="arch-desc">MarketContextAgent computes NIFTY regime (BULL / BEAR / SIDEWAYS), VIX level, and a conviction multiplier.</div></div>
+        <div class="arch-card"><div class="arch-node">report_node</div><div class="arch-desc">ReportWriterAgent uses Groq (llama3-70b) or Gemini (1.5-flash) to write a daily research note in Markdown.</div></div>
+      </div>
+
+      <div class="tcard">
+        <div class="tcard-head"><span class="tcard-title">Model Variants</span></div>
+        <table>
+          <thead><tr><th>Variant</th><th>Architecture</th><th>Checkpoint Pattern</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="badge" style="background:var(--blue-bg);color:var(--blue);border:1px solid rgba(88,166,255,.3)">hybrid</span></td>
+              <td>BiGRU + SparseMoE + Causal Hypergraph + HetGAT</td>
+              <td><code>*hybrid_best.dat</code></td>
+            </tr>
+            <tr>
+              <td><span class="badge" style="background:rgba(188,140,255,.1);color:var(--purple);border:1px solid rgba(188,140,255,.3)">mamba</span></td>
+              <td>Mamba SSM + SparseMoE + Hypergraph + HetGAT</td>
+              <td><code>*mamba_moe_best.dat</code></td>
+            </tr>
+            <tr>
+              <td><span class="badge" style="background:rgba(227,179,65,.1);color:var(--yellow);border:1px solid rgba(227,179,65,.3)">thgnn</span></td>
+              <td>GRU + Positive/Negative GAT (base model)</td>
+              <td><code>*icrank_best.dat</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="ccard">
+        <div class="ccard-title">Signal Fusion Formula</div>
+        <div class="formula">
+          <div><span class="fkey">final_score &nbsp;&nbsp;&nbsp;</span> <span class="fval">= α × GNN_rank + (1 − α) × sentiment_norm</span></div>
+          <div><span class="fkey">adjusted_score</span> <span class="fval">= final_score × confidence_multiplier</span> <span class="fcomment">  ← BUY candidates only</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Panel 4: Risk ── -->
+    <div class="panel" id="p4">
+      <div id="p4-empty" class="empty">
+        <div class="empty-icon">⚠️</div>
+        <div class="empty-title">No risk data</div>
+        <div class="empty-desc">Run the pipeline in the Portfolio tab to populate risk metrics.</div>
+      </div>
+
+      <div id="p4-data" style="display:none">
+        <div class="tcard">
+          <div class="tcard-head"><span class="tcard-title">Risk Metrics</span></div>
+          <div class="tscroll">
+            <table>
+              <thead><tr>
+                <th>Ticker</th><th>Action</th><th>Risk</th><th>Beta</th>
+                <th>Vol 20d</th><th>Δ 52w High</th><th>Δ 52w Low</th>
+                <th>Range Pos.</th><th>Price (₹)</th><th>ATR</th>
+              </tr></thead>
+              <tbody id="p4-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="ccard"><div class="ccard-title">Beta vs 20-day Volatility</div><div id="riskScatter" style="height:360px"></div></div>
+        <div class="ccard"><div class="ccard-title">52-Week Range Position</div><div id="rangeChart" style="height:280px"></div></div>
+      </div>
+    </div>
+
+    <!-- ── Panel 5: Report ── -->
+    <div class="panel" id="p5">
+      <div id="p5-empty" class="empty">
+        <div class="empty-icon">📝</div>
+        <div class="empty-title">No report available</div>
+        <div class="empty-desc">
+          Run the pipeline with an LLM API key set to generate a daily research note.<br><br>
+          <strong>Groq</strong> (free): <a href="#" style="color:var(--blue)">console.groq.com</a> → set <code>GROQ_API_KEY</code><br>
+          <strong>Gemini</strong> (free): <a href="#" style="color:var(--blue)">aistudio.google.com</a> → set <code>GOOGLE_API_KEY</code>
+        </div>
+      </div>
+
+      <div id="p5-data" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div>
+            <div class="sec-title" id="reportTitle">Daily Research Note</div>
+            <div class="sec-sub" id="reportMeta"></div>
+          </div>
+          <button class="obtn" onclick="downloadReport()">↓ .md</button>
+        </div>
+        <div class="report-wrap" id="reportBody"></div>
+      </div>
+    </div>
+
+  </div><!-- /panels -->
+</main>
+</div><!-- /app -->
+
+<!-- ── Loading overlay ── -->
+<div class="overlay" id="overlay">
+  <div class="spinner"></div>
+  <div class="ol-title" id="olTitle">Running pipeline…</div>
+  <div class="ol-steps" id="olSteps">This may take 30–120 s depending on model variant and news fetch.</div>
+  <div class="ol-prog"><div class="prog-dot"></div><div class="prog-dot"></div><div class="prog-dot"></div></div>
+</div>
+
+<!-- ── Toast ── -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────────────────────────────────
+const S = {
+  portfolio: [],
+  riskData:  {},
+  macro:     {},
+  report:    '',
+  runDate:   '',
+  variant:   'hybrid',
+  sortCol:   'final_score',
+  sortAsc:   false,
+  btLoaded:  false,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Init
+// ─────────────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  const d = new Date(); d.setDate(d.getDate() - 1);
+  document.getElementById('dateInput').value = d.toISOString().split('T')[0];
+  document.getElementById('modelVariant').addEventListener('change', e => {
+    document.getElementById('chipModel').textContent = e.target.value;
+  });
+  tick();
+  setInterval(tick, 1000);
+  loadTickers();
+  loadLatestReport();
+});
+
+function tick() {
+  const t = new Date();
+  document.getElementById('clock').textContent =
+    t.toLocaleTimeString('en-IN', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'})
+    + ' IST';
+}
+
+function updateChipAlpha(v) {
+  document.getElementById('chipAlpha').textContent = 'α=' + parseFloat(v).toFixed(2);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tab switching
+// ─────────────────────────────────────────────────────────────────────────────
+function switchTab(idx, btn) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i===idx));
+  document.querySelectorAll('.panel').forEach((p,i) => p.classList.toggle('active', i===idx));
+  if (idx === 1 && !S.btLoaded) loadBacktest();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pipeline run
+// ─────────────────────────────────────────────────────────────────────────────
+async function runPipeline() {
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  setStatus('Running…', 'yellow');
+  showOverlay('Running multi-agent pipeline…',
+    'Fetching OHLCV data → Loading GNN model → Scoring stocks → Sentiment analysis → Portfolio construction…');
+
+  const noNews = document.getElementById('noNews').checked;
+  const payload = {
+    date:          document.getElementById('dateInput').value,
+    top_k:         +document.getElementById('topK').value,
+    alpha:         +document.getElementById('alpha').value,
+    no_news:       noNews,
+    no_report:     document.getElementById('noReport').checked,
+    model_variant: document.getElementById('modelVariant').value,
+    llm_provider:  document.getElementById('llmProvider').value || null,
+  };
+
+  document.getElementById('chipDate').textContent    = payload.date;
+  document.getElementById('chipModel').textContent   = payload.model_variant;
+  document.getElementById('chipNews').textContent    = noNews ? 'no-news' : '+news';
+  document.getElementById('chipNews').className      = 'chip' + (noNews ? '' : ' active');
+
+  try {
+    const r = await fetch('/api/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    if (!data.success) throw new Error(data.error || 'Pipeline failed');
+
+    S.portfolio = data.portfolio || [];
+    S.riskData  = data.risk_data  || {};
+    S.macro     = data.macro_context || {};
+    S.report    = data.report_markdown || '';
+    S.runDate   = payload.date;
+    S.variant   = payload.model_variant;
+
+    renderPortfolio();
+    renderRisk();
+    if (S.report) renderReport(S.report, S.runDate, S.variant);
+
+    setStatus('Ready', 'green');
+    toast('Pipeline complete — ' + S.portfolio.length + ' stocks scored.', 'ok');
+  } catch (e) {
+    setStatus('Error', 'red');
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    hideOverlay();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API helpers
+// ─────────────────────────────────────────────────────────────────────────────
+async function loadBacktest() {
+  try {
+    const data = await fetch('/api/backtest').then(r => r.json());
+    S.btLoaded = true;
+    renderBacktest(data);
+  } catch {}
+}
+
+async function loadTickers() {
+  try {
+    const tickers = await fetch('/api/tickers').then(r => r.json());
+    const sel = document.getElementById('newsTicker');
+    tickers.forEach(t => {
+      const o = document.createElement('option');
+      o.value = t; o.textContent = t.replace('.NS','');
+      sel.appendChild(o);
+    });
+  } catch {}
+}
+
+async function fetchNews() {
+  const ticker = document.getElementById('newsTicker').value;
+  const maxH   = +document.getElementById('maxH').value;
+  if (!ticker) return;
+  showOverlay('Fetching news for ' + ticker.replace('.NS','') + '…', 'Loading FinBERT model + scraping headlines…');
+  try {
+    const data = await fetch('/api/news', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ticker, max_headlines: maxH}),
+    }).then(r => r.json());
+    if (!data.success) throw new Error(data.error);
+    renderNews(ticker, data);
+  } catch (e) { toast('Error: ' + e.message, 'err'); }
+  finally { hideOverlay(); }
+}
+
+async function loadLatestReport() {
+  try {
+    const data = await fetch('/api/reports/latest').then(r => r.json());
+    if (data.content) renderReport(data.content, data.filename, '');
+  } catch {}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Renderers
+// ─────────────────────────────────────────────────────────────────────────────
+function renderPortfolio() {
+  const df = S.portfolio;
+  el('p0-empty').style.display = 'none';
+  el('p0-data').style.display  = 'block';
+
+  const mc = S.macro;
+  if (mc && Object.keys(mc).length) {
+    const regime = mc.market_regime || 'SIDEWAYS';
+    const b = el('regimeBanner');
+    b.style.display = 'flex';
+    b.innerHTML =
+      `<span class="rbadge ${regime}">${regime}</span>` +
+      `<span class="rstat">NIFTY 1d: <strong>${pct(mc.nifty_return_1d)}</strong></span>` +
+      `<span class="rstat">5d trend: <strong>${pct(mc.nifty_trend_5d)}</strong></span>` +
+      `<span class="rstat">VIX: <strong>${(mc.vix_level||0).toFixed(1)}</strong></span>` +
+      `<span class="rstat">Conviction: <strong>${(mc.confidence_multiplier||1).toFixed(2)}×</strong></span>`;
+  }
+
+  const buys  = df.filter(r => r.action === 'BUY');
+  const sells = df.filter(r => r.action === 'SELL');
+  el('p0-metrics').innerHTML =
+    mcard(buys.length,  'BUY Candidates',  'g') +
+    mcard(sells.length, 'SELL Candidates', 'r') +
+    mcard(df.length,    'Total Stocks',    '') +
+    mcard(S.runDate,    'Run Date',        '', 'font-size:14px');
+
+  el('badge0').textContent = df.length || '—';
+  drawPortTable(df);
+
+  const hasSentiment = df.some(r => r.sentiment_score !== undefined);
+  if (hasSentiment && !document.getElementById('noNews').checked) {
+    el('p0-scatter').style.display = 'block';
+    drawScatter(df);
+  }
+}
+
+function drawPortTable(df) {
+  const sorted = [...df].sort((a,b) => {
+    const av = a[S.sortCol], bv = b[S.sortCol];
+    if (av == null) return 1; if (bv == null) return -1;
+    return S.sortAsc ? (av>bv?1:-1) : (av<bv?1:-1);
+  });
+  el('portTbody').innerHTML = sorted.map(r => `
+    <tr>
+      <td style="font-weight:600;font-family:'JetBrains Mono',monospace">${(r.ticker||'').replace('.NS','')}</td>
+      <td>${actionBadge(r.action)}</td>
+      <td>${fmt(r.gnn_rank,4)}</td>
+      <td style="color:${sentColor(r.sentiment_score)}">${fmt(r.sentiment_score,3)}</td>
+      <td><strong>${fmt(r.final_score,4)}</strong></td>
+      <td>${fmt(r.adjusted_score,4)}</td>
+      <td>${r.news_count ?? '—'}</td>
+    </tr>`).join('');
+}
+
+function sortBy(col) {
+  S.sortAsc = (S.sortCol === col) ? !S.sortAsc : false;
+  S.sortCol = col;
+  drawPortTable(S.portfolio);
+}
+
+function drawScatter(df) {
+  const colors = {BUY:'#3fb950', SELL:'#f85149', HOLD:'#8b949e'};
+  const traces = ['BUY','SELL','HOLD'].map(action => {
+    const pts = df.filter(r => r.action === action);
+    return {
+      x: pts.map(r => r.gnn_rank), y: pts.map(r => r.sentiment_score),
+      text: pts.map(r => (r.ticker||'').replace('.NS','')),
+      mode: 'markers+text', textposition: 'top center',
+      textfont: {size:9, color:'#6e7681'},
+      marker: {color: colors[action], size:8, opacity:.85},
+      name: action,
+    };
+  });
+  Plotly.newPlot('scatterPlot', traces, pLayout({
+    xaxis:{title:'GNN Rank Score'}, yaxis:{title:'News Sentiment Score'},
+  }), {responsive:true, displayModeBar:false});
+}
+
+function renderBacktest(results) {
+  if (!results || !results.length) {
+    el('p1-warn').style.display = 'block'; return;
+  }
+  const rows = results.map(r => ({
+    run: r.folder||'?',
+    model: (r.source||'?').toUpperCase(),
+    tr:  r.longshort?.total_return_pct,
+    ar:  r.longshort?.ann_return_pct,
+    sh:  r.longshort?.sharpe,
+    dd:  r.longshort?.max_drawdown_pct,
+    wr:  r.longshort?.win_rate_pct,
+    ic:  r.ic?.ic_mean,
+  }));
+
+  el('p1-tbody').innerHTML = rows.map(r => `
+    <tr>
+      <td style="font-family:'JetBrains Mono',monospace;font-size:11px">${r.run}</td>
+      <td><span class="badge badge-hold">${r.model}</span></td>
+      <td style="color:${r.tr>=0?'var(--green)':'var(--red)'}">${fmt(r.tr,2)??'—'}%</td>
+      <td style="color:${r.ar>=0?'var(--green)':'var(--red)'}">${fmt(r.ar,2)??'—'}%</td>
+      <td style="color:${r.sh>=1?'var(--green)':r.sh<0?'var(--red)':'var(--text1)'}">${fmt(r.sh,3)??'—'}</td>
+      <td style="color:var(--red)">${fmt(r.dd,2)??'—'}%</td>
+      <td>${fmt(r.wr,1)??'—'}%</td>
+      <td>${fmt(r.ic,4)??'—'}</td>
+    </tr>`).join('');
+
+  const runs = rows.map(r => r.run);
+  const shs  = rows.map(r => r.sh ?? 0);
+  const trs  = rows.map(r => r.tr ?? 0);
+
+  Plotly.newPlot('sharpeChart', [{
+    x: runs, y: shs, type:'bar',
+    marker:{color: shs.map(v => v>=0?'#3fb950':'#f85149')},
+    text: shs.map(v => v.toFixed(2)), textposition:'auto',
+  }], pLayout({xaxis:{tickangle:-20}, yaxis:{title:'Sharpe Ratio'}}), {responsive:true, displayModeBar:false});
+
+  Plotly.newPlot('returnChart', [{
+    x: runs, y: trs, type:'bar',
+    marker:{color: trs.map(v => v>=0?'#3fb950':'#f85149')},
+    text: trs.map(v => v.toFixed(1)+'%'), textposition:'auto',
+  }], pLayout({xaxis:{tickangle:-20}, yaxis:{title:'Total Return (%)'}}), {responsive:true, displayModeBar:false});
+}
+
+function renderNews(ticker, data) {
+  el('p2-empty').style.display = 'none';
+  el('p2-data').style.display  = 'block';
+
+  const sc = data.sentiment_score || 0;
+  const lbl = sc > .1 ? 'POSITIVE' : sc < -.1 ? 'NEGATIVE' : 'NEUTRAL';
+  const lc  = sc > .1 ? 'var(--green)' : sc < -.1 ? 'var(--red)' : 'var(--text2)';
+
+  el('p2-metrics').innerHTML =
+    mcard((sc>=0?'+':'')+sc.toFixed(3), 'Sentiment Score', '', `color:${lc}`) +
+    mcard(lbl, 'Sentiment Label', '', `font-size:14px;color:${lc}`) +
+    mcard(data.news_count||0, 'Headlines', '') +
+    mcard(ticker.replace('.NS',''), 'Stock', '', "font-size:16px;font-family:'JetBrains Mono',monospace");
+
+  const hls = data.headlines || [];
+  el('headlinesList').innerHTML = hls.length
+    ? hls.map(h => {
+        const p=h.positive||0, n=h.negative||0, u=h.neutral||0, tot=p+n+u||1;
+        const dom = p>n ? 'POSITIVE' : n>p ? 'NEGATIVE' : 'NEUTRAL';
+        const dc  = p>n ? 'var(--green)' : n>p ? 'var(--red)' : 'var(--text2)';
+        return `<div class="headline">
+          <div class="hl-text">${h.headline||''}</div>
+          <div class="hl-meta">
+            <div class="sbar">
+              <div class="sbar-p" style="width:${p/tot*100}%"></div>
+              <div class="sbar-n" style="width:${n/tot*100}%"></div>
+              <div class="sbar-u" style="width:${u/tot*100}%"></div>
+            </div>
+            <span class="slabel" style="color:${dc}">${dom}</span>
+            <span class="smeta">P:${(p*100).toFixed(0)}% N:${(n*100).toFixed(0)}%</span>
+          </div>
+        </div>`;
+      }).join('')
+    : '<div class="infobox">No headlines found for this ticker via yfinance.</div>';
+}
+
+function renderRisk() {
+  const rd = S.riskData;
+  if (!rd || !Object.keys(rd).length) return;
+  el('p4-empty').style.display = 'none';
+  el('p4-data').style.display  = 'block';
+
+  const rows = Object.entries(rd).map(([ticker, r]) => {
+    const pr = S.portfolio.find(p => p.ticker===ticker) || {};
+    return {ticker, ...r, action:pr.action};
+  });
+  el('badge4').textContent = rows.length;
+
+  const rClasses = {HIGH:'badge-high', MEDIUM:'badge-medium', LOW:'badge-low'};
+  el('p4-tbody').innerHTML = rows.map(r => `
+    <tr>
+      <td style="font-weight:600;font-family:'JetBrains Mono',monospace">${r.ticker.replace('.NS','')}</td>
+      <td>${actionBadge(r.action)}</td>
+      <td><span class="badge ${rClasses[r.risk_label]||'badge-hold'}">${r.risk_label||'—'}</span></td>
+      <td>${fmt(r.beta,2)??'—'}</td>
+      <td>${r.vol_20d ? (r.vol_20d*100).toFixed(1)+'%' : '—'}</td>
+      <td style="color:var(--red)">${r.pct_from_52w_high ? r.pct_from_52w_high.toFixed(1)+'%' : '—'}</td>
+      <td style="color:var(--green)">${r.pct_from_52w_low ? '+'+r.pct_from_52w_low.toFixed(1)+'%' : '—'}</td>
+      <td>${r.range_position !== undefined ? (r.range_position*100).toFixed(0)+'%' : '—'}</td>
+      <td>${r.current_price ? '₹'+parseFloat(r.current_price).toFixed(2) : '—'}</td>
+      <td>${fmt(r.atr,2)??'—'}</td>
+    </tr>`).join('');
+
+  const plotRows = rows.filter(r => r.beta != null && r.vol_20d != null);
+  const rColors  = {HIGH:'#f85149', MEDIUM:'#e3b341', LOW:'#3fb950', UNKNOWN:'#8b949e'};
+  const groups   = {};
+  plotRows.forEach(r => {
+    const k = r.risk_label||'UNKNOWN';
+    (groups[k] = groups[k]||[]).push(r);
+  });
+  const scTraces = Object.entries(groups).map(([lbl, grp]) => ({
+    x: grp.map(r => +r.beta), y: grp.map(r => +r.vol_20d*100),
+    text: grp.map(r => r.ticker.replace('.NS','')),
+    mode:'markers+text', textposition:'top center',
+    textfont:{size:9, color:'#6e7681'},
+    marker:{color:rColors[lbl]||'#8b949e', size:9, opacity:.85},
+    name: lbl,
+  }));
+  const maxVol = Math.max(...plotRows.map(r => +r.vol_20d*100), 1);
+  scTraces.push({x:[1,1],y:[0,maxVol*1.1], mode:'lines',
+    line:{color:'#8b949e',dash:'dash',width:1}, name:'β=1'});
+  Plotly.newPlot('riskScatter', scTraces,
+    pLayout({xaxis:{title:'Beta vs NIFTY 50'}, yaxis:{title:'20d Vol (%)'}}),
+    {responsive:true, displayModeBar:false});
+
+  const rng = [...rows].filter(r => r.range_position != null)
+    .sort((a,b) => b.range_position - a.range_position);
+  Plotly.newPlot('rangeChart', [{
+    x: rng.map(r => r.ticker.replace('.NS','')),
+    y: rng.map(r => +r.range_position*100),
+    type:'bar',
+    marker:{color: rng.map(r => +r.range_position>.5 ? '#3fb950' : '#f85149')},
+  }], pLayout({
+    xaxis:{tickangle:-30},
+    yaxis:{title:'Range Position (0=52w Low, 100=52w High)'},
+    shapes:[{type:'line', x0:-0.5, x1:rng.length-0.5, y0:50, y1:50,
+             line:{color:'#8b949e',dash:'dash',width:1}}],
+  }), {responsive:true, displayModeBar:false});
+}
+
+function renderReport(md, dateOrFile, variant) {
+  el('p5-empty').style.display = 'none';
+  el('p5-data').style.display  = 'block';
+  el('reportMeta').textContent = variant
+    ? `Generated for ${dateOrFile} · model=${variant}`
+    : `Last saved: ${dateOrFile}`;
+  el('reportBody').innerHTML = marked.parse(md);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utils
+// ─────────────────────────────────────────────────────────────────────────────
+function pLayout(extra = {}) {
+  return {
+    paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    font:{family:'Inter,sans-serif', color:'#c9d1d9', size:11},
+    margin:{t:8, r:10, b:46, l:52},
+    legend:{bgcolor:'transparent', bordercolor:'#30363d', borderwidth:1},
+    xaxis:{gridcolor:'#21262d', zerolinecolor:'#30363d', ...(extra.xaxis||{})},
+    yaxis:{gridcolor:'#21262d', zerolinecolor:'#30363d', ...(extra.yaxis||{})},
+    shapes: extra.shapes,
+  };
+}
+
+function actionBadge(a) {
+  if (a === 'BUY')  return '<span class="badge badge-buy">▲ BUY</span>';
+  if (a === 'SELL') return '<span class="badge badge-sell">▼ SELL</span>';
+  if (a === 'HOLD') return '<span class="badge badge-hold">— HOLD</span>';
+  return '—';
+}
+
+function mcard(val, label, color, style='') {
+  return `<div class="mcard"><div class="mlabel">${label}</div><div class="mval ${color}" style="${style}">${val}</div></div>`;
+}
+
+function fmt(v, d=2) {
+  if (v === undefined || v === null || (typeof v === 'number' && isNaN(v))) return null;
+  return parseFloat(v).toFixed(d);
+}
+
+function pct(v) {
+  if (v == null) return '—';
+  const p = (v * 100).toFixed(2);
+  return (v >= 0 ? '+' : '') + p + '%';
+}
+
+function sentColor(v) {
+  if (v == null) return 'var(--text1)';
+  return v > 0.05 ? 'var(--green)' : v < -0.05 ? 'var(--red)' : 'var(--text1)';
+}
+
+function el(id) { return document.getElementById(id); }
+
+function setStatus(text, color) {
+  el('statusLabel').textContent = text;
+  const c = {green:'var(--green)', yellow:'var(--yellow)', red:'var(--red)'}[color];
+  el('statusDot').style.background = c || 'var(--green)';
+}
+
+function showOverlay(title, steps) {
+  el('olTitle').textContent = title;
+  el('olSteps').textContent = steps || '';
+  el('overlay').classList.add('on');
+}
+function hideOverlay() { el('overlay').classList.remove('on'); }
+
+function toast(msg, type='ok') {
+  const t = el('toast');
+  t.textContent = msg;
+  t.className = 'toast on ' + type;
+  setTimeout(() => t.classList.remove('on'), 4200);
+}
+
+function downloadCSV() {
+  if (!S.portfolio.length) return;
+  const keys = Object.keys(S.portfolio[0]);
+  const csv = [keys.join(','), ...S.portfolio.map(r =>
+    keys.map(k => JSON.stringify(r[k]??'')).join(',')
+  )].join('\n');
+  dl(new Blob([csv], {type:'text/csv'}), `portfolio_${S.runDate}.csv`);
+}
+
+function downloadReport() {
+  if (!S.report) return;
+  dl(new Blob([S.report], {type:'text/markdown'}), `${S.runDate}_${S.variant}_report.md`);
+}
+
+function dl(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+}
+</script>
+</body>
+</html>

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -33,6 +34,17 @@ import torch
 import torch.nn.functional as F
 from scipy import stats
 from tqdm import tqdm
+
+def _patch_pathlib() -> None:
+    import types, pathlib as _pl
+    if "pathlib._local" not in sys.modules:
+        shim = types.ModuleType("pathlib._local")
+        shim.PosixPath   = _pl.PurePosixPath   # type: ignore[attr-defined]
+        shim.WindowsPath = _pl.PureWindowsPath  # type: ignore[attr-defined]
+        sys.modules["pathlib._local"] = shim
+    if hasattr(_pl, "PosixPath"):
+        _pl.PosixPath = _pl.PurePosixPath      # type: ignore[attr-defined]
+_patch_pathlib()
 
 from data_loader import AllGraphDataSampler
 from model.hybrid_model import HybridStockModel
@@ -309,10 +321,10 @@ def _plot_equity_curve(
 
     # Panel 3: rolling IC
     ic_s = pd.Series(ic_series, index=dates)
-    rolling_ic = ic_s.rolling(20, min_periods=5).mean()
+    rolling_ic = ic_s.rolling(60, min_periods=10).mean()
     ax = axes[2]
     ax.plot(dates, ic_series,  color="thistle",  lw=0.8, alpha=0.6, label="Daily IC")
-    ax.plot(dates, rolling_ic, color="purple",   lw=1.5, label="20-day rolling IC")
+    ax.plot(dates, rolling_ic, color="purple",   lw=1.5, label="60-day rolling IC")
     ax.axhline(0,       color="gray",   lw=0.8, ls=":")
     ax.axhline(ic_mean, color="purple", lw=1.0, ls="--", alpha=0.5,
                label=f"Mean IC = {ic_mean:.3f}")
@@ -344,6 +356,26 @@ def _plot_quintiles(
                 val + (0.5 if val >= 0 else -1.5),
                 f"{val:.1f}%", ha="center", va="bottom", fontsize=9)
     ax.grid(True, alpha=0.3, axis="y")
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_ic_histogram(ic_arr: np.ndarray, ic_mean: float, out_path: Path) -> None:
+    valid = ic_arr[~np.isnan(ic_arr)]
+    from scipy.stats import gaussian_kde
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.hist(valid, bins=40, color="steelblue", alpha=0.7, edgecolor="white", density=True)
+    kde = gaussian_kde(valid)
+    xs  = np.linspace(valid.min() - 0.02, valid.max() + 0.02, 300)
+    ax.plot(xs, kde(xs), color="navy", lw=2, label="KDE")
+    ax.axvline(ic_mean, color="red",  lw=1.5, ls="--", label=f"Mean IC = {ic_mean:.4f}")
+    ax.axvline(0,       color="gray", lw=0.8, ls=":")
+    ax.set_xlabel("Daily Spearman IC")
+    ax.set_ylabel("Density")
+    ax.set_title(f"IC Distribution — Mamba--MoE  (n={len(valid)} days)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -751,12 +783,22 @@ def main() -> None:
         title_suffix=ckpt_suffix,
     )
     _plot_quintiles(q_returns, out_dir / "quintile_returns.png")
+    _plot_ic_histogram(ic_arr, ic_stats["ic_mean"], out_dir / "ic_histogram.png")
     _plot_cost_sensitivity(cost_table, out_dir / "cost_sensitivity.png")
     _plot_monthly_heatmap(daily_dates, ls_ret, out_dir / "monthly_heatmap.png")
 
+    # Raw series for compare_models.py
+    ic_df = pd.DataFrame({"date": daily_dates, "ic": ic_arr, "ls_ret": ls_ret})
+    ic_df.to_csv(out_dir / "ic_timeseries.csv", index=False)
+    metrics_json["ic_series"]     = [round(float(x), 6) if not np.isnan(x) else None for x in ic_arr]
+    metrics_json["ls_ret_series"] = [round(float(x), 8) for x in ls_ret]
+    metrics_json["dates"]         = [str(d.date()) for d in daily_dates]
+    (out_dir / "metrics.json").write_text(json.dumps(metrics_json, indent=2), encoding="utf-8")
+
     print(f"\nResults saved to: {out_dir}")
-    print(f"  metrics_report.txt  metrics.json")
-    print(f"  equity_curve.png  quintile_returns.png  monthly_heatmap.png  cost_sensitivity.png")
+    print(f"  metrics_report.txt  metrics.json  ic_timeseries.csv")
+    print(f"  equity_curve.png  quintile_returns.png  ic_histogram.png")
+    print(f"  monthly_heatmap.png  cost_sensitivity.png")
 
 
 def _plot_monthly_heatmap(
