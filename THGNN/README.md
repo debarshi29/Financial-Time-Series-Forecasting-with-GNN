@@ -21,23 +21,35 @@ A PyTorch implementation of THGNN applied to the **Nifty 50** index. The model f
 ```
 THGNN/
 ├── model/
-│   └── Thgnn.py               # StockHeteGAT, GraphAttnMultiHead, GraphAttnSemIndividual, PairNorm
+│   └── Thgnn.py                  # StockHeteGAT, GraphAttnMultiHead, GraphAttnSemIndividual, PairNorm
 ├── trainer/
-│   └── trainer.py             # extract_data, train_epoch, eval_epoch helpers (legacy)
+│   └── trainer.py                # extract_data helper (shared by train, backtest, and plot scripts)
 ├── utils/
 │   ├── download_market_data.py   # Step 1: download and preprocess OHLCV from Yahoo Finance
 │   ├── generate_relation.py      # Step 2: build per-day pairwise correlation matrices
-│   └── generate_data.py          # Step 3: assemble graph samples (features + adjacency + labels)
-├── data_loader.py             # AllGraphDataSampler (PyTorch Dataset)
-├── train_ic_ranked.py         # PRIMARY training script (MSE + IC + dispersion loss)
-├── rebuild_graph_data.py      # Utility: rebuild data_train_predict/ with a custom adj threshold
+│   ├── generate_data.py          # Step 3: assemble graph samples (features + adjacency + labels)
+│   └── filter_nifty500.py        # NSE universe filtering
+├── data_loader.py                # AllGraphDataSampler (PyTorch Dataset)
+├── train_ic_ranked.py            # PRIMARY training script (MSE + IC + dispersion loss)
+├── train_paper_bce.py            # Ablation: original paper BCE loss for comparison
+├── walk_forward_train.py         # 4-fold expanding-window walk-forward validation
+├── run_icrank_tuning.py          # Ablation: conservative / balanced / aggressive IC weight
+├── backtest.py                   # Historical evaluation with transaction costs
+├── plot_live_predictions.py      # Inference + visualisation for a date range (4 chart types)
+├── rebuild_graph_data.py         # Rebuild data_train_predict/ with a different adj threshold
+├── update_data.sh                # Incremental data refresh (Linux/Mac)
+├── update_data.ps1               # Incremental data refresh (Windows)
 ├── data/
-│   ├── nifty50.pkl            # Processed market data (output of download_market_data.py)
-│   ├── relation/              # Per-day correlation CSVs (output of generate_relation.py)
-│   ├── data_train_predict/    # Daily graph samples as .pkl files (output of generate_data.py)
-│   ├── daily_stock/           # Per-day stock metadata CSVs
-│   ├── model_saved/           # Checkpoints saved during training
-│   └── plots/                 # Loss curve PNGs
+│   ├── nifty50.pkl               # Processed 50-stock market data
+│   ├── valid_nifty500.txt        # NSE ticker list for update scripts
+│   ├── model_saved/              # Best-IC checkpoints (*_icrank_best.dat, *_hybrid_best.dat)
+│   ├── data_train_predict/       # Daily graph samples — generated, not committed
+│   ├── relation/                 # Per-day correlation matrices — generated, not committed
+│   ├── backtest_results/         # Backtest outputs (equity curves, metrics)
+│   └── plots/                    # Training loss curves and live prediction charts
+├── presentation/                 # Beamer slides + draw.io architecture diagrams
+├── LEAKAGE_ANALYSIS_REPORT.md    # Data leakage audit (forward-look prevention)
+├── THESIS_MODEL_PIPELINE_DOCUMENTATION.md  # Full pipeline documentation
 └── requirements.txt
 ```
 

@@ -1,0 +1,11 @@
+# THGNN-specific gitignore
+__pycache__/
+*.pyc
+.claude/
+logs/
+data/relation/
+data/relation_nifty500/
+data/data_train_predict/
+data/daily_stock/
+data/nifty500.pkl
+data/nifty500_new.pkl
