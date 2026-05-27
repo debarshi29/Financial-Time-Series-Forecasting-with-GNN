@@ -1,38 +1,70 @@
-# Environment variables
+# ─── Environment variables ────────────────────────────────────────────────────
 .env
 .env.*
 *.env
 
-# CSV files
-*.csv
-*.pkl
-
-# Python
+# ─── Python ───────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 *.db
+*.sqlite3
 
-# Virtual environments
+# ─── Virtual environments ─────────────────────────────────────────────────────
 venv/
 .venv/
 env/
+ENV/
 
-# Jupyter
+# ─── Data files (large binary — re-generate locally) ─────────────────────────
+*.pkl
+*.csv
+# Uncomment to also exclude model checkpoints from future commits:
+# *.dat
+
+# ─── Jupyter ──────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
+*.ipynb
 
-# Mac
-.DS_Store
+# ─── Node / Frontend ──────────────────────────────────────────────────────────
+node_modules/
+dist/
+.next/
+out/
 
-# Windows
-Thumbs.db
-
-# VS Code
+# ─── IDE / Editor ─────────────────────────────────────────────────────────────
 .vscode/
+.idea/
 .claude/
 .codex/
-Report/
-# Logs
-*.log
+*.swp
+*.swo
 
+# ─── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── LaTeX build artifacts ────────────────────────────────────────────────────
+Report/
+*.aux
+*.log
+*.blg
+*.bbl
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.out
+*.toc
+*.lot
+*.lof
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Temporary / misc ─────────────────────────────────────────────────────────
+*.tmp
+*.bak
+*.orig
