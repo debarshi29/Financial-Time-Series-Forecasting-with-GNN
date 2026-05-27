@@ -1,9 +1,52 @@
 [project]
 name = "financial-time-series-forecasting-with-gnn"
 version = "0.1.0"
-description = "Add your description here"
+description = "MSc Thesis: Temporal Heterogeneous GNN for Financial Time Series Forecasting"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi>=0.136.1",
+    # PyTorch (CUDA build resolved via uv.sources below)
+    "torch>=2.5.1",
+    "torchvision>=0.20.1",
+    "torchaudio>=2.5.1",
+    # Core data / ML
+    "numpy>=1.26.0",
+    "pandas>=2.2.3",
+    "scipy>=1.13.0",
+    "scikit-learn>=1.3.0",
+    "networkx>=3.4",
+    # Finance data
+    "yfinance>=1.0",
+    "requests>=2.32.5",
+    # Visualisation
+    "matplotlib>=3.8.0",
+    "seaborn>=0.13.2",
+    # Utilities
+    "tqdm>=4.66.0",
+    # Demo API server
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.0.0",
+    "python-multipart>=0.0.9",
+    # MultiAgent / LLM pipeline
+    "langgraph>=0.2.0",
+    "langchain-core>=0.2.0",
+    "langchain-groq>=0.1.0",
+    "langchain-google-genai>=1.0.0",
+    "transformers>=4.40.0",
+    # Streamlit dashboard
+    "streamlit>=1.35.0",
 ]
+
+[tool.uv]
+index-strategy = "unsafe-best-match"
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+torchvision = { index = "pytorch-cu124" }
+torchaudio = { index = "pytorch-cu124" }

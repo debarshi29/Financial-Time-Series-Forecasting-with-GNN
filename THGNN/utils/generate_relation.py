@@ -171,7 +171,10 @@ def main() -> None:
         t1 = time.time()
         result = stock_cor_matrix(samples, list(samples.keys()), prev_date_num, processes=args.processes)
         result = result.fillna(0.0)
-        np.fill_diagonal(result.values, 1.0)
+        # result.values may be read-only (pandas 2 / NumPy 1.25+), so copy first.
+        arr = result.to_numpy().copy()
+        np.fill_diagonal(arr, 1.0)
+        result = pd.DataFrame(arr, index=result.index, columns=result.columns)
         elapsed = time.time() - t1
         output_path = relation_dir / f"{end_data.strftime('%Y-%m-%d')}.csv"
         result.to_csv(output_path)

@@ -1,0 +1,55 @@
+# Virtual environments
+.venv/
+venv/
+env/
+*/.venv/
+*/venv/
+
+# Python cache
+__pycache__/
+*/__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# uv / pip artefacts
+uv.lock
+*/uv.lock
+*.egg-info/
+
+# Large data / model artefacts (mount as volumes instead)
+THGNN/data/
+THGNN_MaGNet/data/
+THGNN_Mamba_MoE/data/
+THGNN/logs/
+THGNN/model/
+THGNN_MaGNet/model/
+THGNN_Mamba_MoE/model/
+reports/
+comparison_results/
+
+# Frontend source (built assets already in demo/static)
+frontend/node_modules/
+frontend/dist/
+
+# Dev / OS noise
+.env
+.env.*
+*.env
+.git/
+.gitignore
+.python-version
+.vscode/
+.claude/
+.codex/
+*.log
+Thumbs.db
+.DS_Store
+
+# Docs / papers (not needed at runtime)
+Papers/
+Report/
+*.tex
+*.pdf
+*.md

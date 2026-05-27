@@ -52,7 +52,15 @@ step_done()  {
     echo ""
 }
 
-log "Starting incremental update — start_date=$START_DATE"
+# Feature-engineering burn-in: mom20 / rsi14 / vol20 each drop up to 20 rows per
+# stock via dropna().  Downloading from exactly $START_DATE means the first ~20
+# trading days (~28 calendar days) have no valid features, creating a gap that
+# breaks the relation-matrix window check (requires EXACTLY 20 aligned days).
+# Fix: download from 45 calendar days before START_DATE; the merge step deduplicates
+# so historical data is never re-added, but the burn-in rows are present.
+DOWNLOAD_START=$(date -d "$START_DATE - 45 days" +%Y-%m-%d)
+
+log "Starting incremental update — start_date=$START_DATE  (download_start=$DOWNLOAD_START)"
 log "Log file: $LOG"
 log "Working directory: $SCRIPT_DIR"
 echo ""
@@ -60,7 +68,7 @@ echo ""
 # ---------------------------------------------------------------------------
 # Step 1 — Download new price data
 # ---------------------------------------------------------------------------
-step_start 1 "Download price data from $START_DATE"
+step_start 1 "Download price data from $DOWNLOAD_START (burn-in offset from $START_DATE)"
 
 TICKERS="$(paste -sd ',' "$TICKER_FILE")"
 TICKER_COUNT="$(wc -l < "$TICKER_FILE")"
@@ -68,7 +76,7 @@ log "Tickers: $TICKER_COUNT (from $TICKER_FILE)"
 
 python "$SCRIPT_DIR/utils/download_market_data.py" \
     --tickers "$TICKERS" \
-    --start "$START_DATE" \
+    --start "$DOWNLOAD_START" \
     --output "$NEW_PKL"
 
 log "Downloaded to $NEW_PKL"
