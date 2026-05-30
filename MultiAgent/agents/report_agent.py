@@ -1,7 +1,9 @@
 """
-Report Writer Agent — generates a structured markdown research note using a free LLM.
+Report Writer Agent — generates a structured markdown research note using an LLM.
 
-Supported providers (both free-tier):
+Supported providers:
+    "custom" — any OpenAI-compatible chat endpoint. Set LLM_BASE_URL, LLM_API_KEY,
+               and LLM_MODEL (the model identifier the endpoint expects).
     "groq"   — llama3-70b-8192 via Groq API  (set GROQ_API_KEY)
                Sign up free at https://console.groq.com
     "gemini" — gemini-1.5-flash via Google AI (set GOOGLE_API_KEY)
@@ -31,19 +33,38 @@ Keep the total length under 600 words. Use bullet points within sections. Be dir
 
 
 def _build_llm(provider: str):
-    """Return a LangChain chat model for the chosen free-tier provider."""
-    if provider == "groq":
+    """Return a LangChain chat model for the chosen provider."""
+    if provider == "custom":
+        from langchain_openai import ChatOpenAI
+        base_url = os.environ.get("LLM_BASE_URL")
+        api_key  = os.environ.get("LLM_API_KEY")
+        model    = os.environ.get("LLM_MODEL")
+        if not (base_url and api_key and model):
+            raise EnvironmentError(
+                "custom provider requires LLM_BASE_URL, LLM_API_KEY, and LLM_MODEL."
+            )
+        return ChatOpenAI(
+            model=model,
+            temperature=0.3,
+            base_url=base_url,
+            api_key=api_key,
+        )
+    elif provider == "groq":
         from langchain_groq import ChatGroq
         return ChatGroq(model="llama3-70b-8192", temperature=0.3)
     elif provider == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
     else:
-        raise ValueError(f"Unknown LLM provider '{provider}'. Use 'groq' or 'gemini'.")
+        raise ValueError(
+            f"Unknown LLM provider '{provider}'. Use 'custom', 'groq', or 'gemini'."
+        )
 
 
 def _auto_detect_provider() -> str | None:
     """Return the first provider whose API key is set in the environment."""
+    if os.environ.get("LLM_API_KEY"):
+        return "custom"
     if os.environ.get("GROQ_API_KEY"):
         return "groq"
     if os.environ.get("GOOGLE_API_KEY"):
@@ -98,7 +119,8 @@ class ReportWriterAgent:
         resolved = provider or _auto_detect_provider()
         if resolved is None:
             raise EnvironmentError(
-                "No LLM API key found. Set GROQ_API_KEY (groq) or GOOGLE_API_KEY (gemini)."
+                "No LLM API key found. Set LLM_API_KEY (custom), "
+                "GROQ_API_KEY (groq), or GOOGLE_API_KEY (gemini)."
             )
         self.provider = resolved
         self._llm = _build_llm(resolved)

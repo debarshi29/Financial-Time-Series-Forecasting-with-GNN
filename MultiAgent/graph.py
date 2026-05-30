@@ -8,7 +8,7 @@ Nodes
   portfolio_node : Fuse GNN rank + sentiment into a ranked buy/sell table
   risk_node      : Compute beta/volatility/52w metrics for BUY+SELL candidates
   macro_node     : Fetch NIFTY 50 trend + India VIX; derive market regime + multiplier
-  report_node    : Generate AI research note via Groq or Gemini (free LLMs)
+  report_node    : Generate AI research note via a custom OpenAI-compatible LLM, Groq, or Gemini
 
 Routing
 -------
@@ -24,7 +24,7 @@ Usage
         top_k=10,
         alpha=0.7,
         model_variant="hybrid",   # "hybrid" | "mamba" | "thgnn"
-        llm_provider="groq",      # "groq" | "gemini"  (or None to auto-detect)
+        llm_provider="custom",    # "custom" | "groq" | "gemini"  (or None to auto-detect)
     )
 """
 from __future__ import annotations
@@ -223,7 +223,7 @@ def report_node(state: PipelineState) -> dict:
         return {
             "report_markdown": "",
             "report_path": "",
-            "log": ["[report_node] skipped (no GROQ_API_KEY or GOOGLE_API_KEY found)"],
+            "log": ["[report_node] skipped (no LLM_API_KEY, GROQ_API_KEY, or GOOGLE_API_KEY found)"],
         }
 
     try:
@@ -261,6 +261,8 @@ def report_node(state: PipelineState) -> dict:
 
 
 def _auto_detect_provider() -> str | None:
+    if os.environ.get("LLM_API_KEY"):
+        return "custom"
     if os.environ.get("GROQ_API_KEY"):
         return "groq"
     if os.environ.get("GOOGLE_API_KEY"):
