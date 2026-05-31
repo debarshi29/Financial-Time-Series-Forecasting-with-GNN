@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useStore } from './lib/store'
 import { api } from './lib/api'
 import Header from './components/Header'
@@ -33,29 +33,26 @@ export default function App() {
   const Panel = PANELS[activeTab]
 
   return (
-    <div className="flex flex-col h-full bg-s0">
+    <div className="flex flex-col h-full bg-bg0">
       <Header />
-
       <div className="flex flex-1 overflow-hidden">
         <Sidebar showToast={showToast} />
-
         <main className="flex-1 overflow-hidden relative">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.1 }}
               className="absolute inset-0 overflow-y-auto"
-              style={{ padding: '28px 32px 72px' }}
+              style={{ padding: '20px 22px 64px' }}
             >
               <Panel />
             </motion.div>
           </AnimatePresence>
         </main>
       </div>
-
       <LoadingOverlay />
       <AnimatePresence>
         {toast && <Toast key={toast.key} msg={toast.msg} type={toast.type} />}

@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { motion } from 'framer-motion'
 import { useStore } from '../lib/store'
 import { api } from '../lib/api'
 
@@ -9,9 +8,9 @@ const yesterday = () => {
 }
 
 const MODELS = [
-  { id: 'hybrid', name: 'Hybrid', sub: 'BiGRU · MoE · Hypergraph' },
-  { id: 'mamba',  name: 'Mamba',  sub: 'SSM · MoE · Hypergraph' },
-  { id: 'thgnn',  name: 'THGNN',  sub: 'GRU · GAT (base)' },
+  { id: 'hybrid', name: 'HYBRID', sub: 'BiGRU·MoE·Hypergraph' },
+  { id: 'mamba',  name: 'MAMBA',  sub: 'SSM·MoE·Hypergraph' },
+  { id: 'thgnn',  name: 'THGNN',  sub: 'GRU·GAT (base)' },
 ]
 
 export default function Sidebar({ showToast }) {
@@ -26,17 +25,16 @@ export default function Sidebar({ showToast }) {
   const [llm,      setLlm]      = useState('')
 
   const run = async () => {
-    setLoading(true, 'Initialising pipeline…')
+    setLoading(true, 'INITIALISING PIPELINE')
     try {
       const data = await api.run({
         date, top_k: topK, alpha,
         no_news: noNews, no_report: noReport,
-        model_variant: model,
-        llm_provider: llm || null,
+        model_variant: model, llm_provider: llm || null,
       })
       if (!data.success) throw new Error(data.error)
       setResult(data, date, model)
-      showToast(`Done · ${(data.portfolio || []).length} stocks scored`, 'ok')
+      showToast(`${(data.portfolio || []).length} stocks scored`, 'ok')
     } catch (e) {
       showToast(e.message, 'err')
     } finally {
@@ -45,162 +43,122 @@ export default function Sidebar({ showToast }) {
   }
 
   return (
-    <aside className="w-[240px] shrink-0 flex flex-col bg-s1"
-      style={{ borderRight: '1px solid rgba(255,255,255,.055)' }}>
+    <aside className="w-[228px] shrink-0 flex flex-col bg-bg1 border-r border-ln">
 
-      {/* ── Scrollable form area ─────────────── */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-5">
+      {/* Header */}
+      <div className="h-[34px] flex items-center px-4 border-b border-ln shrink-0">
+        <span className="lbl">Configuration</span>
+      </div>
 
-        {/* Model selector — buttons, not a dropdown */}
-        <div>
-          <div className="label-xs mb-2.5">Model</div>
-          <div className="space-y-1.5">
-            {MODELS.map(m => (
-              <button
-                key={m.id}
-                onClick={() => setModel(m.id)}
-                className="w-full text-left px-3 py-2.5 rounded-lg transition-all duration-150"
-                style={{
-                  background: model === m.id ? 'rgba(99,102,241,.12)' : 'rgba(255,255,255,.025)',
-                  border: `1px solid ${model === m.id ? 'rgba(99,102,241,.35)' : 'rgba(255,255,255,.05)'}`,
-                }}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[12px] font-semibold"
-                    style={{ color: model === m.id ? '#C4C4FF' : '#8080B8' }}>
-                    {m.name}
+      <div className="flex-1 overflow-y-auto">
+
+        {/* Model — radio rows */}
+        <Block label="Model">
+          <div className="space-y-px">
+            {MODELS.map(m => {
+              const on = model === m.id
+              return (
+                <button key={m.id} onClick={() => setModel(m.id)}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-sm transition-colors text-left"
+                  style={{ background: on ? '#151517' : 'transparent', border: `1px solid ${on ? '#2E2E33' : 'transparent'}` }}>
+                  <span className="w-[10px] h-[10px] rounded-full shrink-0 border flex items-center justify-center"
+                    style={{ borderColor: on ? '#56B6C2' : '#3F3F46' }}>
+                    {on && <span className="w-[4px] h-[4px] rounded-full" style={{ background: '#56B6C2' }} />}
                   </span>
-                  {model === m.id && (
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
-                      stroke="#6366F1" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12"/>
-                    </svg>
-                  )}
-                </div>
-                <div className="text-[10px] mt-0.5" style={{ color: model === m.id ? '#6366F1' : '#282850' }}>
-                  {m.sub}
-                </div>
-              </button>
-            ))}
+                  <span className="flex flex-col gap-0.5 min-w-0">
+                    <span className="text-[11px] font-semibold tracking-wide leading-none"
+                      style={{ color: on ? '#E4E4E7' : '#A1A1AA' }}>{m.name}</span>
+                    <span className="text-[9px] leading-none truncate" style={{ color: on ? '#56B6C2' : '#52525B' }}>{m.sub}</span>
+                  </span>
+                </button>
+              )
+            })}
           </div>
-        </div>
+        </Block>
 
-        {/* Divider */}
-        <div style={{ height: 1, background: 'rgba(255,255,255,.05)' }} />
+        <Block label="Date">
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="fi num" />
+        </Block>
 
-        {/* Date */}
-        <div>
-          <div className="label-xs mb-2">Date</div>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="fi" />
-        </div>
+        <Block label="Top-K" value={topK}>
+          <input type="range" min={3} max={20} value={topK} onChange={e => setTopK(+e.target.value)} className="fi-range" />
+          <Ticks lo="3" hi="20" />
+        </Block>
 
-        {/* Top-K */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <div className="label-xs">Top-K</div>
-            <span className="font-mono text-[11px] font-bold text-t0">{topK}</span>
+        <Block label="GNN Weight α" value={alpha.toFixed(2)}>
+          <input type="range" min={0} max={1} step={0.05} value={alpha} onChange={e => setAlpha(+e.target.value)} className="fi-range" />
+          <Ticks lo="news" hi="gnn" />
+        </Block>
+
+        <Block label="Flags">
+          <div className="space-y-2">
+            <Check id="noNews"   checked={noNews}   onChange={setNoNews}   label="Skip news (faster)" />
+            <Check id="noReport" checked={noReport} onChange={setNoReport} label="Skip AI report" />
           </div>
-          <input type="range" min={3} max={20} value={topK}
-            onChange={e => setTopK(+e.target.value)} className="fi-range" />
-          <div className="flex justify-between mt-1.5">
-            <span className="text-[9px] text-t3">3</span>
-            <span className="text-[9px] text-t3">20</span>
-          </div>
-        </div>
+        </Block>
 
-        {/* Alpha */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <div className="label-xs">GNN Weight α</div>
-            <span className="font-mono text-[11px] font-bold text-t0">{alpha.toFixed(2)}</span>
-          </div>
-          <input type="range" min={0} max={1} step={0.05} value={alpha}
-            onChange={e => setAlpha(+e.target.value)} className="fi-range" />
-          <div className="flex justify-between mt-1.5">
-            <span className="text-[9px] text-t3">news only</span>
-            <span className="text-[9px] text-t3">GNN only</span>
-          </div>
-        </div>
-
-        {/* Divider */}
-        <div style={{ height: 1, background: 'rgba(255,255,255,.05)' }} />
-
-        {/* Toggles */}
-        <div className="space-y-3">
-          <Toggle id="noNews"   checked={noNews}   onChange={setNoNews}
-            label="Skip news (faster)" />
-          <Toggle id="noReport" checked={noReport} onChange={setNoReport}
-            label="Skip AI report" />
-        </div>
-
-        {/* LLM */}
-        <div>
-          <div className="label-xs mb-2">LLM Provider</div>
-          <select value={llm} onChange={e => setLlm(e.target.value)} className="fi fi-select">
+        <Block label="LLM Provider">
+          <select value={llm} onChange={e => setLlm(e.target.value)} className="fi fi-sel">
             <option value="">Auto-detect</option>
             <option value="groq">Groq (free)</option>
             <option value="gemini">Gemini (free)</option>
           </select>
-        </div>
-
+        </Block>
       </div>
 
-      {/* ── Run button ───────────────────────── */}
-      <div className="p-4" style={{ borderTop: '1px solid rgba(255,255,255,.05)' }}>
-        <motion.button
-          onClick={run}
-          disabled={loading}
-          whileHover={!loading ? { scale: 1.02 } : {}}
-          whileTap={!loading  ? { scale: 0.97 } : {}}
-          className="btn-run w-full h-11 rounded-xl font-bold text-[13.5px] flex items-center justify-center gap-2.5"
-        >
-          {loading ? <><SpinIcon />Running…</> : <><PlayIcon />Run Pipeline</>}
-        </motion.button>
+      {/* Run */}
+      <div className="p-3 border-t border-ln shrink-0">
+        <button onClick={run} disabled={loading} className="btn w-full">
+          {loading
+            ? <><Spin />RUNNING</>
+            : <><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>RUN PIPELINE</>}
+        </button>
       </div>
     </aside>
   )
 }
 
-// ── Toggle switch ──────────────────────────────────────────────────────────────
-function Toggle({ id, checked, onChange, label }) {
+function Block({ label, value, children }) {
   return (
-    <label htmlFor={id} className="flex items-center gap-3 cursor-pointer">
-      <div className="relative shrink-0" style={{ width: 30, height: 17 }}>
-        <input id={id} type="checkbox" checked={checked}
-          onChange={e => onChange(e.target.checked)} className="sr-only" />
-        <div style={{
-          width: 30, height: 17, borderRadius: 99,
-          background: checked ? '#6366F1' : 'rgba(255,255,255,.08)',
-          border: `1px solid ${checked ? 'rgba(99,102,241,.6)' : 'rgba(255,255,255,.1)'}`,
-          transition: 'background .2s, border-color .2s',
-          position: 'relative',
-        }}>
-          <div style={{
-            position: 'absolute',
-            top: 2, left: checked ? 14 : 2,
-            width: 11, height: 11,
-            borderRadius: '50%',
-            background: 'white',
-            boxShadow: '0 1px 3px rgba(0,0,0,.4)',
-            transition: 'left .2s',
-          }} />
-        </div>
+    <div className="px-4 py-3.5 border-b border-ln">
+      <div className="flex items-center justify-between mb-2.5">
+        <span className="lbl">{label}</span>
+        {value != null && <span className="num text-[11px] font-semibold text-tx0">{value}</span>}
       </div>
-      <span className="text-[12px]" style={{ color: checked ? '#8080B8' : '#505080' }}>{label}</span>
+      {children}
+    </div>
+  )
+}
+
+function Ticks({ lo, hi }) {
+  return (
+    <div className="flex justify-between mt-2">
+      <span className="text-[8.5px] tracking-wider text-tx4 uppercase">{lo}</span>
+      <span className="text-[8.5px] tracking-wider text-tx4 uppercase">{hi}</span>
+    </div>
+  )
+}
+
+function Check({ id, checked, onChange, label }) {
+  return (
+    <label htmlFor={id} className="flex items-center gap-2.5 cursor-pointer group">
+      <span className="w-[13px] h-[13px] rounded-sm border flex items-center justify-center shrink-0 transition-colors"
+        style={{ borderColor: checked ? '#56B6C2' : '#3F3F46', background: checked ? 'rgba(86,182,194,.12)' : 'transparent' }}>
+        {checked && (
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#56B6C2" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+        )}
+        <input id={id} type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} className="sr-only" />
+      </span>
+      <span className="text-[11px]" style={{ color: checked ? '#A1A1AA' : '#71717A' }}>{label}</span>
     </label>
   )
 }
 
-// ── Icons ──────────────────────────────────────────────────────────────────────
-const PlayIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M5 3l14 9-14 9V3z"/>
-  </svg>
-)
-
-const SpinIcon = () => (
-  <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none">
-    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity=".2"/>
+const Spin = () => (
+  <svg className="spin" width="12" height="12" viewBox="0 0 24 24" fill="none">
+    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity=".25"/>
     <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/>
   </svg>
 )
