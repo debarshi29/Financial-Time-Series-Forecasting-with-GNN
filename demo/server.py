@@ -25,37 +25,6 @@ def _get_template() -> str:
     return _TEMPLATE_PATH.read_text(encoding="utf-8")
 
 
-def _load_backtest_results() -> list[dict]:
-    results_dir = ROOT / "THGNN" / "data" / "backtest_results"
-    out: list[dict] = []
-    if not results_dir.exists():
-        return out
-    for folder in sorted(results_dir.iterdir()):
-        metrics_json = folder / "metrics.json"
-        metrics_txt  = folder / "metrics_report.txt"
-        if metrics_json.exists():
-            data = json.loads(metrics_json.read_text())
-            data["source"] = "hybrid" if "hybrid" in folder.name.lower() else "thgnn"
-            data["folder"] = folder.name
-            out.append(data)
-        elif metrics_txt.exists():
-            text = metrics_txt.read_text()
-            entry: dict = {"folder": folder.name, "source": "thgnn", "longshort": {}}
-            for line in text.splitlines():
-                if "Total Return" in line and "%" in line:
-                    try:
-                        entry["longshort"]["total_return_pct"] = float(line.split()[-1])
-                    except Exception:
-                        pass
-                if "Sharpe Ratio" in line:
-                    try:
-                        entry["longshort"]["sharpe"] = float(line.split()[-1])
-                    except Exception:
-                        pass
-            out.append(entry)
-    return out
-
-
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # silence default per-request logs
         pass
@@ -93,9 +62,6 @@ class Handler(BaseHTTPRequestHandler):
 
         if path in ("/", "/index.html"):
             self._send_html(_get_template())
-
-        elif path == "/api/backtest":
-            self._send_json(_load_backtest_results())
 
         elif path == "/api/tickers":
             f = ROOT / "THGNN" / "data" / "valid_nifty500.txt"

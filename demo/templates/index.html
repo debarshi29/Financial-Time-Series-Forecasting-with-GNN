@@ -401,11 +401,10 @@ code{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--bg3)
 
   <nav class="tabs">
     <button class="tab active" onclick="switchTab(0,this)">Portfolio<span class="tab-badge" id="badge0">—</span></button>
-    <button class="tab"        onclick="switchTab(1,this)">Backtest</button>
-    <button class="tab"        onclick="switchTab(2,this)">News</button>
-    <button class="tab"        onclick="switchTab(3,this)">Overview</button>
-    <button class="tab"        onclick="switchTab(4,this)">Risk<span class="tab-badge" id="badge4">—</span></button>
-    <button class="tab"        onclick="switchTab(5,this)">Report</button>
+    <button class="tab"        onclick="switchTab(1,this)">News</button>
+    <button class="tab"        onclick="switchTab(2,this)">Overview</button>
+    <button class="tab"        onclick="switchTab(3,this)">Risk<span class="tab-badge" id="badge3">—</span></button>
+    <button class="tab"        onclick="switchTab(4,this)">Report</button>
   </nav>
 
   <div class="panels">
@@ -450,38 +449,8 @@ code{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--bg3)
       </div>
     </div>
 
-    <!-- ── Panel 1: Backtest ── -->
+    <!-- ── Panel 1: News ── -->
     <div class="panel" id="p1">
-      <div class="sec-header">
-        <div class="sec-title">Backtest Performance</div>
-        <div class="sec-sub">Long-short strategy metrics across historical runs</div>
-      </div>
-
-      <div id="p1-warn" class="warnbox" style="display:none">
-        No backtest results found in <code>THGNN/data/backtest_results/</code>.<br>
-        Run: <code>python THGNN/backtest.py --start-date 2025-01-01 --end-date 2026-02-28 --top-k 5</code>
-      </div>
-
-      <div id="p1-data">
-        <div class="tcard">
-          <div class="tcard-head"><span class="tcard-title">Performance Metrics</span></div>
-          <div class="tscroll">
-            <table>
-              <thead><tr>
-                <th>Run</th><th>Model</th><th>Total Return %</th><th>Ann. Return %</th>
-                <th>Sharpe</th><th>Max DD %</th><th>Win Rate %</th><th>IC Mean</th>
-              </tr></thead>
-              <tbody id="p1-tbody"></tbody>
-            </table>
-          </div>
-        </div>
-        <div class="ccard"><div class="ccard-title">Sharpe Ratio</div><div id="sharpeChart" style="height:260px"></div></div>
-        <div class="ccard"><div class="ccard-title">Total Return (%)</div><div id="returnChart" style="height:260px"></div></div>
-      </div>
-    </div>
-
-    <!-- ── Panel 2: News ── -->
-    <div class="panel" id="p2">
       <div class="sec-header">
         <div class="sec-title">News Sentiment Analysis</div>
         <div class="sec-sub">FinBERT-powered per-stock sentiment scoring</div>
@@ -503,20 +472,20 @@ code{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--bg3)
         <button class="run-btn" style="width:auto;padding:9px 18px" onclick="fetchNews()">Fetch &amp; Score</button>
       </div>
 
-      <div id="p2-empty" class="empty">
+      <div id="p1-empty" class="empty">
         <div class="empty-icon">📰</div>
         <div class="empty-title">Select a stock</div>
         <div class="empty-desc">Choose a ticker and click Fetch &amp; Score to retrieve<br>headlines with FinBERT sentiment analysis.</div>
       </div>
 
-      <div id="p2-data" style="display:none">
-        <div class="metrics" id="p2-metrics"></div>
+      <div id="p1-data" style="display:none">
+        <div class="metrics" id="p1-metrics"></div>
         <div id="headlinesList"></div>
       </div>
     </div>
 
-    <!-- ── Panel 3: Overview ── -->
-    <div class="panel" id="p3">
+    <!-- ── Panel 2: Overview ── -->
+    <div class="panel" id="p2">
       <div class="sec-header">
         <div class="sec-title">Multi-Agent System Architecture</div>
         <div class="sec-sub">LangGraph pipeline · GNN + NLP signal fusion</div>
@@ -575,15 +544,15 @@ code{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--bg3)
       </div>
     </div>
 
-    <!-- ── Panel 4: Risk ── -->
-    <div class="panel" id="p4">
-      <div id="p4-empty" class="empty">
+    <!-- ── Panel 3: Risk ── -->
+    <div class="panel" id="p3">
+      <div id="p3-empty" class="empty">
         <div class="empty-icon">⚠️</div>
         <div class="empty-title">No risk data</div>
         <div class="empty-desc">Run the pipeline in the Portfolio tab to populate risk metrics.</div>
       </div>
 
-      <div id="p4-data" style="display:none">
+      <div id="p3-data" style="display:none">
         <div class="tcard">
           <div class="tcard-head"><span class="tcard-title">Risk Metrics</span></div>
           <div class="tscroll">
@@ -593,7 +562,7 @@ code{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--bg3)
                 <th>Vol 20d</th><th>Δ 52w High</th><th>Δ 52w Low</th>
                 <th>Range Pos.</th><th>Price (₹)</th><th>ATR</th>
               </tr></thead>
-              <tbody id="p4-tbody"></tbody>
+              <tbody id="p3-tbody"></tbody>
             </table>
           </div>
         </div>
@@ -602,9 +571,9 @@ code{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--bg3)
       </div>
     </div>
 
-    <!-- ── Panel 5: Report ── -->
-    <div class="panel" id="p5">
-      <div id="p5-empty" class="empty">
+    <!-- ── Panel 4: Report ── -->
+    <div class="panel" id="p4">
+      <div id="p4-empty" class="empty">
         <div class="empty-icon">📝</div>
         <div class="empty-title">No report available</div>
         <div class="empty-desc">
@@ -614,7 +583,7 @@ code{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--bg3)
         </div>
       </div>
 
-      <div id="p5-data" style="display:none">
+      <div id="p4-data" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div>
             <div class="sec-title" id="reportTitle">Daily Research Note</div>
@@ -654,7 +623,6 @@ const S = {
   variant:   'hybrid',
   sortCol:   'final_score',
   sortAsc:   false,
-  btLoaded:  false,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -689,7 +657,6 @@ function updateChipAlpha(v) {
 function switchTab(idx, btn) {
   document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i===idx));
   document.querySelectorAll('.panel').forEach((p,i) => p.classList.toggle('active', i===idx));
-  if (idx === 1 && !S.btLoaded) loadBacktest();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -752,14 +719,6 @@ async function runPipeline() {
 // ─────────────────────────────────────────────────────────────────────────────
 // API helpers
 // ─────────────────────────────────────────────────────────────────────────────
-async function loadBacktest() {
-  try {
-    const data = await fetch('/api/backtest').then(r => r.json());
-    S.btLoaded = true;
-    renderBacktest(data);
-  } catch {}
-}
-
 async function loadTickers() {
   try {
     const tickers = await fetch('/api/tickers').then(r => r.json());
@@ -876,59 +835,15 @@ function drawScatter(df) {
   }), {responsive:true, displayModeBar:false});
 }
 
-function renderBacktest(results) {
-  if (!results || !results.length) {
-    el('p1-warn').style.display = 'block'; return;
-  }
-  const rows = results.map(r => ({
-    run: r.folder||'?',
-    model: (r.source||'?').toUpperCase(),
-    tr:  r.longshort?.total_return_pct,
-    ar:  r.longshort?.ann_return_pct,
-    sh:  r.longshort?.sharpe,
-    dd:  r.longshort?.max_drawdown_pct,
-    wr:  r.longshort?.win_rate_pct,
-    ic:  r.ic?.ic_mean,
-  }));
-
-  el('p1-tbody').innerHTML = rows.map(r => `
-    <tr>
-      <td style="font-family:'JetBrains Mono',monospace;font-size:11px">${r.run}</td>
-      <td><span class="badge badge-hold">${r.model}</span></td>
-      <td style="color:${r.tr>=0?'var(--green)':'var(--red)'}">${fmt(r.tr,2)??'—'}%</td>
-      <td style="color:${r.ar>=0?'var(--green)':'var(--red)'}">${fmt(r.ar,2)??'—'}%</td>
-      <td style="color:${r.sh>=1?'var(--green)':r.sh<0?'var(--red)':'var(--text1)'}">${fmt(r.sh,3)??'—'}</td>
-      <td style="color:var(--red)">${fmt(r.dd,2)??'—'}%</td>
-      <td>${fmt(r.wr,1)??'—'}%</td>
-      <td>${fmt(r.ic,4)??'—'}</td>
-    </tr>`).join('');
-
-  const runs = rows.map(r => r.run);
-  const shs  = rows.map(r => r.sh ?? 0);
-  const trs  = rows.map(r => r.tr ?? 0);
-
-  Plotly.newPlot('sharpeChart', [{
-    x: runs, y: shs, type:'bar',
-    marker:{color: shs.map(v => v>=0?'#3fb950':'#f85149')},
-    text: shs.map(v => v.toFixed(2)), textposition:'auto',
-  }], pLayout({xaxis:{tickangle:-20}, yaxis:{title:'Sharpe Ratio'}}), {responsive:true, displayModeBar:false});
-
-  Plotly.newPlot('returnChart', [{
-    x: runs, y: trs, type:'bar',
-    marker:{color: trs.map(v => v>=0?'#3fb950':'#f85149')},
-    text: trs.map(v => v.toFixed(1)+'%'), textposition:'auto',
-  }], pLayout({xaxis:{tickangle:-20}, yaxis:{title:'Total Return (%)'}}), {responsive:true, displayModeBar:false});
-}
-
 function renderNews(ticker, data) {
-  el('p2-empty').style.display = 'none';
-  el('p2-data').style.display  = 'block';
+  el('p1-empty').style.display = 'none';
+  el('p1-data').style.display  = 'block';
 
   const sc = data.sentiment_score || 0;
   const lbl = sc > .1 ? 'POSITIVE' : sc < -.1 ? 'NEGATIVE' : 'NEUTRAL';
   const lc  = sc > .1 ? 'var(--green)' : sc < -.1 ? 'var(--red)' : 'var(--text2)';
 
-  el('p2-metrics').innerHTML =
+  el('p1-metrics').innerHTML =
     mcard((sc>=0?'+':'')+sc.toFixed(3), 'Sentiment Score', '', `color:${lc}`) +
     mcard(lbl, 'Sentiment Label', '', `font-size:14px;color:${lc}`) +
     mcard(data.news_count||0, 'Headlines', '') +
@@ -959,17 +874,17 @@ function renderNews(ticker, data) {
 function renderRisk() {
   const rd = S.riskData;
   if (!rd || !Object.keys(rd).length) return;
-  el('p4-empty').style.display = 'none';
-  el('p4-data').style.display  = 'block';
+  el('p3-empty').style.display = 'none';
+  el('p3-data').style.display  = 'block';
 
   const rows = Object.entries(rd).map(([ticker, r]) => {
     const pr = S.portfolio.find(p => p.ticker===ticker) || {};
     return {ticker, ...r, action:pr.action};
   });
-  el('badge4').textContent = rows.length;
+  el('badge3').textContent = rows.length;
 
   const rClasses = {HIGH:'badge-high', MEDIUM:'badge-medium', LOW:'badge-low'};
-  el('p4-tbody').innerHTML = rows.map(r => `
+  el('p3-tbody').innerHTML = rows.map(r => `
     <tr>
       <td style="font-weight:600;font-family:'JetBrains Mono',monospace">${r.ticker.replace('.NS','')}</td>
       <td>${actionBadge(r.action)}</td>
@@ -1021,8 +936,8 @@ function renderRisk() {
 }
 
 function renderReport(md, dateOrFile, variant) {
-  el('p5-empty').style.display = 'none';
-  el('p5-data').style.display  = 'block';
+  el('p4-empty').style.display = 'none';
+  el('p4-data').style.display  = 'block';
   el('reportMeta').textContent = variant
     ? `Generated for ${dateOrFile} · model=${variant}`
     : `Last saved: ${dateOrFile}`;
