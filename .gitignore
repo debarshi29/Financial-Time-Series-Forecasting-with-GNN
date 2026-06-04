@@ -40,14 +40,13 @@ out/
 .codex/
 *.swp
 *.swo
-
+*.drawio
 # ─── OS ───────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 desktop.ini
 
 # ─── LaTeX build artifacts ────────────────────────────────────────────────────
-Report/
 *.aux
 *.log
 *.blg
